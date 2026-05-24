@@ -1,0 +1,36 @@
+# Render Blueprint – Infrastructure as Code
+# https://render.com/docs/blueprint-spec
+#
+# Deploy: connect this repo on Render and it will auto-detect render.yaml.
+# You must set the secret env vars (SECRET_KEY, DATABASE_URL, JWT_SECRET)
+# in the Render dashboard after the first deploy.
+
+services:
+  - type: web
+    name: esg-platform-api
+    runtime: python
+    region: oregon
+    rootDir: backend
+    buildCommand: "./build.sh"
+    startCommand: "gunicorn esg_platform.wsgi:application --bind 0.0.0.0:$PORT --workers 4"
+    envVars:
+      - key: DEBUG
+        value: "False"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false  # Set manually – paste your Supabase connection string
+      - key: ALLOWED_HOSTS
+        sync: false  # Set to your-service-name.onrender.com
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false  # Set to https://your-app.vercel.app
+      - key: CSRF_TRUSTED_ORIGINS
+        sync: false  # Set to https://your-app.vercel.app
+      - key: PYTHON_VERSION
+        value: "3.12.0"
+      - key: MAX_UPLOAD_SIZE_MB
+        value: "50"
+    healthCheckPath: /health/
+    autoDeploy: true

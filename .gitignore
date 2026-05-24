@@ -1,0 +1,39 @@
+# Root-level .gitignore for ESG Platform
+
+# Python
+*.pyc
+__pycache__/
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Environment files (secrets)
+.env
+backend/.env
+app/.env
+
+# Django
+backend/staticfiles/
+backend/media/
+*.sqlite3
+db.sqlite3
+
+# Node
+node_modules/
+app/dist/
+app/dist-ssr/
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln

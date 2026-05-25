@@ -8,6 +8,7 @@ from decimal import Decimal, InvalidOperation
 from datetime import datetime
 
 from apps.ingestion.models import RawRecord, DataIngestionJob
+from apps.sources.models import SourceSystem
 from ..models import NormalizedActivity
 
 
@@ -104,7 +105,7 @@ class NormalizationService:
         payload = raw_record.original_payload
 
         # Extract values from normalized payload
-        quantity = Decimal(str(payload.get('quantity', '0')).replace(',', ''))
+        quantity = self._parse_decimal(payload.get('quantity', '0'))
         unit = payload.get('unit_normalized', '')
         fuel_type = payload.get('fuel_type_normalized', '').lower()
         plant_code = payload.get('plant_code', '')
@@ -159,7 +160,7 @@ class NormalizationService:
         """Normalize utility electricity record."""
         payload = raw_record.original_payload
 
-        consumption = Decimal(str(payload.get('consumption_kwh', '0')))
+        consumption = self._parse_decimal(payload.get('consumption_kwh', '0'))
         meter_id = payload.get('meter_id', '')
         facility = payload.get('facility', '')
         period_start = payload.get('billing_period_start_parsed', '')
@@ -201,7 +202,7 @@ class NormalizationService:
         payload = raw_record.original_payload
 
         trip_type = payload.get('trip_type_normalized', '')
-        distance = Decimal(str(payload.get('distance_km', '0')))
+        distance = self._parse_decimal(payload.get('distance_km', '0'))
         hotel_nights = int(payload.get('hotel_nights', '0') or '0')
 
         # Determine sub-category and activity value
@@ -318,5 +319,17 @@ class NormalizationService:
             except (ValueError, TypeError):
                 pass
         return None
+
+    def _parse_decimal(self, val, default=Decimal('0')):
+        """Safely parse decimal value."""
+        if val is None:
+            return default
+        val_str = str(val).strip().replace(',', '')
+        if not val_str:
+            return default
+        try:
+            return Decimal(val_str)
+        except (InvalidOperation, TypeError, ValueError):
+            return default
 
 

@@ -59,7 +59,9 @@ export function AuditPage() {
   const loadLogs = async () => {
     try {
       const data = await auditApi.getTimeline();
-      setLogs(data.results || []);
+      // Handle both paginated {results:[]} and plain array
+      const list = Array.isArray(data) ? data : (data.results ?? []);
+      setLogs(list);
     } catch {
       // Handle error
     } finally {

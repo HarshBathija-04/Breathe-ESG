@@ -20,8 +20,10 @@ class AuditPagination(PageNumberPagination):
 @permission_classes([IsAuthenticated])
 def audit_timeline(request):
     """Get audit timeline for tenant."""
-    service = AuditService(request.user.tenant)
-    logs = service.get_tenant_activity(limit=200)
+    from .models import AuditLog
+    logs = AuditLog.objects.filter(
+        tenant=request.user.tenant
+    ).order_by('-timestamp')
 
     # Filter by entity type if provided
     entity_type = request.query_params.get('entity_type')

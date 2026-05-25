@@ -5,6 +5,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.pagination import PageNumberPagination
 from django.shortcuts import get_object_or_404
 
 from apps.normalization.models import NormalizedActivity
@@ -14,14 +15,28 @@ from .serializers import ReviewDecisionSerializer, ReviewActionSerializer
 from .models import ReviewDecision
 
 
+class ReviewPagination(PageNumberPagination):
+    page_size = 50
+    page_size_query_param = 'page_size'
+    max_page_size = 200
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def pending_review(request):
-    """Get all activities pending review for tenant."""
+    """Get activities pending review for tenant (paginated)."""
     service = ReviewService(request.user.tenant)
     activities = service.get_pending_activities()
-    serializer = NormalizedActivitySerializer(activities, many=True)
-    return Response(serializer.data)
+
+    # Optional status filter
+    status_filter = request.query_params.get('status')
+    if status_filter:
+        activities = activities.filter(status=status_filter)
+
+    paginator = ReviewPagination()
+    page = paginator.paginate_queryset(activities, request)
+    serializer = NormalizedActivitySerializer(page, many=True)
+    return paginator.get_paginated_response(serializer.data)
 
 
 @api_view(['POST'])

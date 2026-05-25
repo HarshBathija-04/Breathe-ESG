@@ -67,7 +67,7 @@ export function ReviewPage() {
   const loadActivities = async () => {
     try {
       const data = await reviewApi.getPending();
-      setActivities(data);
+      setActivities(data.results ?? []);
     } catch {
       // Handle error
     } finally {

@@ -42,8 +42,8 @@ export interface ReviewDecision {
 }
 
 export const reviewApi = {
-  getPending: async (): Promise<NormalizedActivity[]> => {
-    const response = await apiClient.get('/review/pending/');
+  getPending: async (params?: { status?: string; page?: number }): Promise<{ count: number; results: NormalizedActivity[] }> => {
+    const response = await apiClient.get('/review/pending/', { params });
     return response.data;
   },
 

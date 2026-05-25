@@ -67,7 +67,9 @@ export function ReviewPage() {
   const loadActivities = async () => {
     try {
       const data = await reviewApi.getPending();
-      setActivities(data.results ?? []);
+      // Handle both plain array (old backend) and paginated {results:[]} (new backend)
+      const list = Array.isArray(data) ? data : (data.results ?? []);
+      setActivities(list as NormalizedActivity[]);
     } catch {
       // Handle error
     } finally {

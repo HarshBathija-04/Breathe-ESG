@@ -2,17 +2,46 @@
 Custom User model with tenant scoping.
 Every user belongs to exactly one tenant (for this prototype).
 """
-from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
+from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
 import uuid
 
 from apps.tenant.models import Tenant
 
 
+class UserManager(BaseUserManager):
+    def create_user(self, email, password=None, **extra_fields):
+        if not email:
+            raise ValueError('The Email field must be set')
+        email = self.normalize_email(email)
+        
+        # Ensure a tenant exists or is assigned if not provided
+        if 'tenant' not in extra_fields:
+            tenant = Tenant.objects.first()
+            if not tenant:
+                tenant = Tenant.objects.create(name="Demo Corporation", slug="demo-corp")
+            extra_fields['tenant'] = tenant
+
+        user = self.model(email=email, **extra_fields)
+        if password:
+            user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_superuser(self, email, password=None, **extra_fields):
+        extra_fields.setdefault('is_staff', True)
+        extra_fields.setdefault('is_superuser', True)
+        extra_fields.setdefault('role', 'admin')
+
+        return self.create_user(email, password, **extra_fields)
+
+
 class User(AbstractBaseUser, PermissionsMixin):
     """
     Custom user with email as username, scoped to tenant.
     """
+    objects = UserManager()
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(unique=True)
     first_name = models.CharField(max_length=150)

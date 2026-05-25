@@ -7,7 +7,7 @@ normalization rules but all produce the same canonical schema.
 from decimal import Decimal, InvalidOperation
 from datetime import datetime
 
-from apps.ingestion.models import RawRecord
+from apps.ingestion.models import RawRecord, DataIngestionJob
 from ..models import NormalizedActivity
 
 

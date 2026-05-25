@@ -50,25 +50,17 @@ def dashboard_stats(request):
         status_counts[status_key] = stat['count']
         status_counts['total'] += stat['count']
 
-    # CO2e by scope
+    # CO2e by scope — include all statuses so charts show data even before approval
     scope_emissions = NormalizedActivity.objects.filter(
         tenant=tenant,
-        status__in=[
-            NormalizedActivity.STATUS_APPROVED,
-            NormalizedActivity.STATUS_LOCKED,
-        ]
     ).values('scope').annotate(
         total_co2e=Sum('co2e'),
         count=Count('id')
     )
 
-    # CO2e by category
+    # CO2e by category — include all statuses
     category_emissions = NormalizedActivity.objects.filter(
         tenant=tenant,
-        status__in=[
-            NormalizedActivity.STATUS_APPROVED,
-            NormalizedActivity.STATUS_LOCKED,
-        ]
     ).values('category').annotate(
         total_co2e=Sum('co2e'),
         count=Count('id')
@@ -87,6 +79,7 @@ def dashboard_stats(request):
             'status': job.status,
             'original_filename': job.original_filename,
             'total_rows': job.total_rows,
+            'parsed_rows': job.parsed_rows,
             'normalized_rows': job.normalized_rows,
             'created_at': job.created_at.isoformat(),
         })

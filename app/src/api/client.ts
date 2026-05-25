@@ -11,7 +11,7 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 30000,
+  timeout: 120000, // 2 min — Supabase (Sydney) latency from India
 });
 
 // Request interceptor - add JWT token

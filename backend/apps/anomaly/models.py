@@ -10,6 +10,7 @@ Status lifecycle:
 """
 from django.db import models
 import uuid
+from decimal import Decimal
 
 from apps.tenant.models import Tenant
 from apps.auth_core.models import User

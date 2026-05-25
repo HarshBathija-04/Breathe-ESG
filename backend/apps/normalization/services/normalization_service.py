@@ -8,7 +8,7 @@ from decimal import Decimal, InvalidOperation
 from datetime import datetime
 
 from apps.ingestion.models import RawRecord
-from .models import NormalizedActivity
+from ..models import NormalizedActivity
 
 
 class NormalizationService:

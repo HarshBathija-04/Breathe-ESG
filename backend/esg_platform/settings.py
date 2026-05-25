@@ -6,6 +6,10 @@ Supports deployment on Render (backend) + Supabase (database) + Vercel (frontend
 import os
 from pathlib import Path
 import dj_database_url
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 

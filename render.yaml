@@ -8,6 +8,7 @@
 services:
   - type: web
     name: esg-platform-api
+    plan: free
     runtime: python
     region: oregon
     rootDir: backend

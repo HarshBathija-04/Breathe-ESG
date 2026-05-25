@@ -8,7 +8,7 @@ Enforces:
 """
 from apps.normalization.models import NormalizedActivity
 from apps.audit.services.audit_service import AuditService
-from .models import ReviewDecision
+from ..models import ReviewDecision
 
 
 class ReviewService:

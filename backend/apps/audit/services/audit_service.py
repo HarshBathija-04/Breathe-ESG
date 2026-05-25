@@ -3,7 +3,7 @@ AuditService - central service for creating audit log entries.
 
 All audit logging goes through here to ensure consistency.
 """
-from .models import AuditLog
+from ..models import AuditLog
 
 
 class AuditService:

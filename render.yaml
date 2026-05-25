@@ -13,7 +13,7 @@ services:
     region: oregon
     rootDir: backend
     buildCommand: "./build.sh"
-    startCommand: "gunicorn esg_platform.wsgi:application --bind 0.0.0.0:$PORT --workers 4"
+    startCommand: "gunicorn esg_platform.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 120 --max-requests 200 --max-requests-jitter 20"
     envVars:
       - key: DEBUG
         value: "False"

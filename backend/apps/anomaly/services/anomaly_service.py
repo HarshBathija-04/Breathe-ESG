@@ -172,7 +172,7 @@ class AnomalyService:
             self._create_flag(
                 activity,
                 AnomalyFlag.TYPE_DUPLICATE,
-                f'Potential duplicate of existing activity ({duplicate.id})',
+                f'Same source row was already ingested on {duplicate.created_at:%b %d, %Y}',
                 Decimal('0.8'),
                 {'duplicate_of': str(duplicate.id)}
             )
@@ -199,7 +199,7 @@ class AnomalyService:
                 self._create_flag(
                     activity,
                     AnomalyFlag.TYPE_OUT_OF_RANGE,
-                    f'Fuel value {value:,.0f} L seems implausibly high',
+                    f'Fuel quantity {value:,.0f} {activity.normalized_unit} seems implausibly high for one entry',
                     Decimal('0.75'),
                     {'value': float(value)}
                 )

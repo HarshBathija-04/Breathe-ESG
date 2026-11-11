@@ -46,7 +46,9 @@ export function formatMonth(key: string): string {
 export function humanize(value: string | null | undefined): string {
   if (!value) return '';
   const text = value.replace(/_/g, ' ').toLowerCase();
-  return text.charAt(0).toUpperCase() + text.slice(1);
+  const sentence = text.charAt(0).toUpperCase() + text.slice(1);
+  // Fuel acronyms stay uppercase ("LPG", not "Lpg").
+  return sentence.replace(/\b(lpg|lng|cng|hvo)\b/gi, (m) => m.toUpperCase());
 }
 
 export function scopeLabel(scope: string): string {

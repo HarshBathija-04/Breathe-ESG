@@ -213,8 +213,8 @@ export function LandingPage() {
           </div>
         </section>
 
-        <section className="py-16 sm:py-20">
-          <div className="container flex flex-col items-start justify-between gap-6 rounded-xl border bg-primary px-6 py-10 text-primary-foreground sm:flex-row sm:items-center sm:px-10">
+        <section className="container py-16 sm:py-20">
+          <div className="flex flex-col items-start justify-between gap-6 rounded-xl border bg-primary px-6 py-10 text-primary-foreground sm:flex-row sm:items-center sm:px-10">
             <div>
               <h2 className="font-display text-2xl font-semibold tracking-tight">
                 Try it with real-looking data

@@ -14,6 +14,7 @@ describe('formatCO2e', () => {
 describe('labels', () => {
   it('formats month keys', () => expect(formatMonth('2024-03')).toBe('Mar 24'));
   it('humanizes enums', () => expect(humanize('PENDING_REVIEW')).toBe('Pending review'));
+  it('keeps fuel acronyms uppercase', () => expect(humanize('lpg')).toBe('LPG'));
   it('labels scopes', () => expect(scopeLabel('Scope2')).toBe('Scope 2'));
 });
 

@@ -100,7 +100,7 @@ export default function AnomaliesPage() {
       />
 
       <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="gap-4 px-5 lg:col-span-1">
+        <Card className="gap-4 self-start px-5 lg:sticky lg:top-6 lg:col-span-1">
           <h2 className="font-medium text-ink">By type</h2>
           {!stats ? (
             <Skeleton className="h-40" />

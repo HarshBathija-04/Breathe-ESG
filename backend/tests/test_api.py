@@ -160,3 +160,11 @@ def test_ai_insights_rate_limited_upstream(analyst, settings):
         groq_cls.return_value.chat.completions.create.side_effect = err
         res = analyst.post('/api/dashboard/insights/')
     assert res.status_code == 429
+
+
+def test_analyst_cannot_resolve_anomaly(analyst):
+    from apps.anomaly.models import AnomalyFlag
+
+    flag = AnomalyFlag.objects.filter(status=AnomalyFlag.STATUS_OPEN).first()
+    res = analyst.post(f'/api/anomalies/{flag.id}/resolve/', {'status': 'RESOLVED'}, format='json')
+    assert res.status_code == 403

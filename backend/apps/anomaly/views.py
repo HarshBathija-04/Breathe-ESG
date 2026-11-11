@@ -62,7 +62,9 @@ def anomaly_stats(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def resolve_anomaly(request, flag_id):
-    """Resolve an anomaly flag."""
+    """Resolve an anomaly flag (reviewers and admins only)."""
+    if not request.user.can_review:
+        return Response({'error': 'Your role cannot resolve anomalies.', 'code': 'permission_denied'}, status=403)
     flag = AnomalyFlag.objects.filter(
         id=flag_id,
         tenant=request.user.tenant,

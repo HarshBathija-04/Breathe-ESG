@@ -188,7 +188,7 @@ class AnomalyService:
                 self._create_flag(
                     activity,
                     AnomalyFlag.TYPE_OUT_OF_RANGE,
-                    f'Electricity value {value} kWh seems implausibly high for a single facility',
+                    f'Electricity value {value:,.0f} kWh seems implausibly high for a single facility',
                     Decimal('0.75'),
                     {'value': float(value)}
                 )
@@ -199,7 +199,7 @@ class AnomalyService:
                 self._create_flag(
                     activity,
                     AnomalyFlag.TYPE_OUT_OF_RANGE,
-                    f'Fuel value {value} L seems implausibly high',
+                    f'Fuel value {value:,.0f} L seems implausibly high',
                     Decimal('0.75'),
                     {'value': float(value)}
                 )
@@ -210,7 +210,7 @@ class AnomalyService:
                 self._create_flag(
                     activity,
                     AnomalyFlag.TYPE_OUT_OF_RANGE,
-                    f'Trip distance {value} km exceeds the circumference of the Earth',
+                    f'Trip distance {value:,.0f} km exceeds the circumference of the Earth',
                     Decimal('0.95'),
                     {'value': float(value)}
                 )

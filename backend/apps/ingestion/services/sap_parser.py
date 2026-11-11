@@ -10,17 +10,18 @@ SAP exports are notoriously inconsistent:
 
 This parser handles the most common flat-file CSV export format.
 """
-from datetime import datetime
-
-from .base_parser import BaseParserService
+from .base_parser import BaseParserService, parse_date
 
 
 class SAPParserService(BaseParserService):
     """Parser for SAP fuel and procurement CSV exports."""
 
-    # Column header mapping: handle both German and English
+    NAME = 'SAP'
+    PARSER_VERSION = 'sap_v1'
+    LOG_VALIDATION_FAILURES = True
+
+    # German and English headers -> internal keys
     COLUMN_MAP = {
-        # German → English internal
         'bukrs': 'company_code',
         'werk': 'plant_code',
         'matnr': 'material_number',
@@ -38,7 +39,6 @@ class SAPParserService(BaseParserService):
         'menge_einheit': 'unit',
     }
 
-    # Unit normalization map
     UNIT_MAP = {
         'l': 'L',
         'ltr': 'L',
@@ -68,116 +68,21 @@ class SAPParserService(BaseParserService):
         'fuel_oil': 'HEATING_OIL',
     }
 
-    def parse_file(self, file_obj):
-        """Parse SAP CSV export and create RawRecords."""
-        rows = self.read_csv(file_obj)
-
-        if not rows:
-            self.log_error(0, "No data rows found in file")
-            return 0, 0, self.errors
-
-        # Normalize headers from first row
-        raw_headers = list(rows[0].keys())
-        normalized_headers = self._normalize_headers(raw_headers)
-
-        self.job.add_log('INFO', f'Detected {len(rows)} rows with headers: {normalized_headers}')
-
-        for idx, raw_row in enumerate(rows, start=1):
-            try:
-                # Skip empty rows and SAP footer rows
-                if self._is_empty_or_footer(raw_row):
-                    continue
-
-                # Normalize the row
-                normalized = self._normalize_row(raw_row, normalized_headers)
-
-                # Validate required fields
-                validation_errors = self._validate_row(normalized)
-
-                if validation_errors:
-                    self.create_raw_record(
-                        payload=normalized,
-                        row_number=idx,
-                        parse_status='FAILED',
-                        parse_error='; '.join(validation_errors)
-                    )
-                    self.failed_count += 1
-                    self.log_error(idx, 'Validation failed', {'errors': validation_errors})
-                else:
-                    self.create_raw_record(
-                        payload=normalized,
-                        row_number=idx,
-                    )
-                    self.parsed_count += 1
-
-            except Exception as e:
-                self.failed_count += 1
-                self.log_error(idx, f'Parse exception: {str(e)}')
-
-        self.job.add_log(
-            'INFO',
-            f'SAP parsing complete: {self.parsed_count} success, {self.failed_count} failed'
-        )
-        return self.parsed_count, self.failed_count, self.errors
-
-    def _normalize_headers(self, raw_headers):
-        """Map raw headers (possibly German) to normalized English keys."""
-        normalized = {}
-        for h in raw_headers:
-            key = h.strip().lower().replace(' ', '_').replace('-', '_')
-            normalized[h] = self.COLUMN_MAP.get(key, key)
-        return normalized
-
-    def _normalize_row(self, raw_row, header_map):
-        """Convert raw CSV row to normalized payload."""
-        result = {
-            '_raw': {k: v for k, v in raw_row.items()},
-            '_parser_version': 'sap_v1',
-        }
-
-        for raw_key, value in raw_row.items():
-            norm_key = header_map.get(raw_key, raw_key.lower().strip())
-            result[norm_key] = value.strip() if value else ''
-
-        # Normalize unit
+    def enrich_row(self, result):
         raw_unit = result.get('unit', '')
         if raw_unit:
             result['unit_normalized'] = self.UNIT_MAP.get(raw_unit.lower(), raw_unit.upper())
 
-        # Normalize fuel type
         raw_fuel = result.get('fuel_type', '')
         if raw_fuel:
-            result['fuel_type_normalized'] = self.FUEL_TYPE_MAP.get(
-                raw_fuel.lower(), raw_fuel.upper()
-            )
+            result['fuel_type_normalized'] = self.FUEL_TYPE_MAP.get(raw_fuel.lower(), raw_fuel.upper())
 
-        # Parse date
         raw_date = result.get('posting_date', '')
-        if raw_date:
-            parsed_date = self._parse_date(raw_date)
-            if parsed_date:
-                result['posting_date_parsed'] = parsed_date.isoformat()
+        parsed_date = parse_date(raw_date) if raw_date else None
+        if parsed_date:
+            result['posting_date_parsed'] = parsed_date.isoformat()
 
-        return result
-
-    def _parse_date(self, date_str):
-        """Parse various SAP date formats."""
-        date_formats = [
-            '%Y-%m-%d',
-            '%d.%m.%Y',
-            '%Y%m%d',
-            '%m/%d/%Y',
-            '%d/%m/%Y',
-        ]
-        for fmt in date_formats:
-            try:
-                return datetime.strptime(date_str.strip(), fmt)
-            except ValueError:
-                continue
-        return None
-
-    def _validate_row(self, normalized):
-        """Validate required fields. Returns list of error messages."""
+    def validate_row(self, normalized):
         errors = []
 
         if not normalized.get('quantity'):
@@ -201,15 +106,9 @@ class SAPParserService(BaseParserService):
 
         return errors
 
-    def _is_empty_or_footer(self, raw_row):
-        """Detect SAP footer rows and completely empty rows."""
-        values = [v for v in raw_row.values() if v and v.strip()]
-        if not values:
+    def is_skipped_row(self, raw_row):
+        """Skip empty rows and SAP summary/footer rows."""
+        if super().is_skipped_row(raw_row):
             return True
-
-        # SAP often ends with summary rows
-        first_val = list(raw_row.values())[0] if raw_row.values() else ''
-        if first_val and first_val.strip().upper() in ['TOTAL', 'SUMME', '****']:
-            return True
-
-        return False
+        first_val = next(iter(raw_row.values()), '')
+        return bool(first_val) and first_val.strip().upper() in ['TOTAL', 'SUMME', '****']

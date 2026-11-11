@@ -12,13 +12,14 @@ Challenges:
 - Airport codes need validation
 - Hotel emissions depend on location (country-level factors)
 """
-from datetime import datetime
-
-from .base_parser import BaseParserService
+from .base_parser import BaseParserService, parse_cost, parse_date
 
 
 class TravelParserService(BaseParserService):
     """Parser for corporate travel platform CSV exports."""
+
+    NAME = 'Travel'
+    PARSER_VERSION = 'travel_v1'
 
     COLUMN_MAP = {
         'traveler': 'traveler',
@@ -108,116 +109,36 @@ class TravelParserService(BaseParserService):
         ('SIN', 'DXB'): 5850,
     }
 
-    def parse_file(self, file_obj):
-        """Parse travel CSV export and create RawRecords."""
-        rows = self.read_csv(file_obj)
-
-        if not rows:
-            self.log_error(0, "No data rows found in file")
-            return 0, 0, self.errors
-
-        raw_headers = list(rows[0].keys())
-        normalized_headers = self._normalize_headers(raw_headers)
-
-        self.job.add_log('INFO', f'Detected {len(rows)} rows with headers: {list(normalized_headers.values())}')
-
-        for idx, raw_row in enumerate(rows, start=1):
-            try:
-                if self._is_empty_row(raw_row):
-                    continue
-
-                normalized = self._normalize_row(raw_row, normalized_headers)
-                validation_errors = self._validate_row(normalized)
-
-                if validation_errors:
-                    self.create_raw_record(
-                        payload=normalized,
-                        row_number=idx,
-                        parse_status='FAILED',
-                        parse_error='; '.join(validation_errors)
-                    )
-                    self.failed_count += 1
-                else:
-                    self.create_raw_record(
-                        payload=normalized,
-                        row_number=idx,
-                    )
-                    self.parsed_count += 1
-
-            except Exception as e:
-                self.failed_count += 1
-                self.log_error(idx, f'Parse exception: {str(e)}')
-
-        self.job.add_log(
-            'INFO',
-            f'Travel parsing complete: {self.parsed_count} success, {self.failed_count} failed'
-        )
-        return self.parsed_count, self.failed_count, self.errors
-
-    def _normalize_headers(self, raw_headers):
-        """Map raw headers to normalized keys."""
-        normalized = {}
-        for h in raw_headers:
-            key = h.strip().lower().replace(' ', '_').replace('-', '_')
-            normalized[h] = self.COLUMN_MAP.get(key, key)
-        return normalized
-
-    def _normalize_row(self, raw_row, header_map):
-        """Convert raw row to normalized payload."""
-        result = {
-            '_raw': {k: v for k, v in raw_row.items()},
-            '_parser_version': 'travel_v1',
-        }
-
-        for raw_key, value in raw_row.items():
-            norm_key = header_map.get(raw_key, raw_key.lower().strip())
-            result[norm_key] = value.strip() if value else ''
-
-        # Categorize trip type
+    def enrich_row(self, result):
         raw_type = result.get('trip_type', '')
         if raw_type:
-            result['trip_type_normalized'] = self.TRIP_TYPE_MAP.get(
-                raw_type.lower(), raw_type.lower()
-            )
+            result['trip_type_normalized'] = self.TRIP_TYPE_MAP.get(raw_type.lower(), raw_type.lower())
 
-        # Uppercase airport codes
         for field in ['origin_airport', 'destination_airport']:
-            val = result.get(field, '')
-            if val:
-                result[field] = val.upper()
+            if result.get(field):
+                result[field] = result[field].upper()
 
-        # Derive distance if missing
-        distance_raw = result.get('distance_km', '')
-        if not distance_raw:
-            origin = result.get('origin_airport', '')
-            dest = result.get('destination_airport', '')
-            if origin and dest:
-                derived = self._derive_distance(origin, dest)
-                if derived:
-                    result['distance_km'] = str(derived)
-                    result['distance_derived'] = True
-                else:
-                    result['distance_derived'] = False
-        else:
+        # Derive distance from the airport table when the export leaves it out.
+        # The key is left out when there is nothing to derive from (keeps row hashes stable).
+        origin = result.get('origin_airport', '')
+        dest = result.get('destination_airport', '')
+        if result.get('distance_km', ''):
             result['distance_derived'] = False
+        elif origin and dest:
+            derived = self._derive_distance(origin, dest)
+            result['distance_derived'] = bool(derived)
+            if derived:
+                result['distance_km'] = str(derived)
 
-        # Parse dates
         for date_field in ['trip_date', 'booking_date']:
             raw_date = result.get(date_field, '')
-            if raw_date:
-                parsed = self._parse_date(raw_date)
-                if parsed:
-                    result[f'{date_field}_parsed'] = parsed.isoformat()
+            parsed = parse_date(raw_date) if raw_date else None
+            if parsed:
+                result[f'{date_field}_parsed'] = parsed.isoformat()
 
-        # Parse cost
-        cost_raw = result.get('cost', '')
-        if cost_raw:
-            try:
-                result['cost_parsed'] = float(cost_raw.replace(',', '').replace('$', '').replace('€', ''))
-            except ValueError:
-                pass
-
-        return result
+        cost = parse_cost(result['cost']) if result.get('cost') else None
+        if cost is not None:
+            result['cost_parsed'] = cost
 
     def _derive_distance(self, origin, destination):
         """Derive flight distance from airport lookup table."""
@@ -241,23 +162,7 @@ class TravelParserService(BaseParserService):
         # If we can't derive, return None - anomaly detector will flag
         return None
 
-    def _parse_date(self, date_str):
-        """Parse various date formats."""
-        date_formats = [
-            '%Y-%m-%d',
-            '%m/%d/%Y',
-            '%d/%m/%Y',
-            '%d.%m.%Y',
-            '%Y%m%d',
-        ]
-        for fmt in date_formats:
-            try:
-                return datetime.strptime(date_str.strip(), fmt)
-            except ValueError:
-                continue
-        return None
-
-    def _validate_row(self, normalized):
+    def validate_row(self, normalized):
         """Validate required fields based on trip type."""
         errors = []
 
@@ -295,8 +200,3 @@ class TravelParserService(BaseParserService):
                 errors.append('Missing transport type for ground transport')
 
         return errors
-
-    def _is_empty_row(self, raw_row):
-        """Check if row is effectively empty."""
-        values = [v for v in raw_row.values() if v and v.strip()]
-        return not values

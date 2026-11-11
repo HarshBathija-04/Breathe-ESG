@@ -1,37 +1,36 @@
-# Render Blueprint – Infrastructure as Code
-# https://render.com/docs/blueprint-spec
+# Render Blueprint - https://render.com/docs/blueprint-spec
 #
-# Deploy: connect this repo on Render and it will auto-detect render.yaml.
-# You must set the secret env vars (SECRET_KEY, DATABASE_URL, JWT_SECRET)
-# in the Render dashboard after the first deploy.
-
+# Declares the Django API only. The PostgreSQL database is shared by several
+# portfolio apps and is created once by hand, so there is deliberately no
+# `databases:` block: paste its connection string into DATABASE_URL. This app
+# keeps its tables in its own schema (DB_SCHEMA), created by migrations.
 services:
   - type: web
-    name: esg-platform-api
-    plan: free
+    name: breathe-esg-api
     runtime: python
+    plan: free
     region: oregon
     rootDir: backend
-    buildCommand: "./build.sh"
-    startCommand: "gunicorn esg_platform.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 120 --max-requests 200 --max-requests-jitter 20"
+    buildCommand: bash ./build.sh
+    startCommand: gunicorn esg_platform.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120 --max-requests 500 --max-requests-jitter 50 --access-logfile -
+    healthCheckPath: /health
+    autoDeploy: true
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.5"
       - key: DEBUG
         value: "False"
+      - key: DB_SCHEMA
+        value: breathe_esg
+      - key: DATABASE_URL
+        sync: false # shared Render Postgres connection string (internal URL)
+      - key: FRONTEND_URL
+        sync: false # e.g. https://breathe-esg.vercel.app (comma-separate several)
+      - key: GROQ_API_KEY
+        sync: false # enables the AI emissions briefing
       - key: SECRET_KEY
         generateValue: true
       - key: JWT_SECRET
         generateValue: true
-      - key: DATABASE_URL
-        sync: false  # Set manually – paste your Supabase connection string
-      - key: ALLOWED_HOSTS
-        sync: false  # Set to your-service-name.onrender.com
-      - key: CORS_ALLOWED_ORIGINS
-        sync: false  # Set to https://your-app.vercel.app
-      - key: CSRF_TRUSTED_ORIGINS
-        sync: false  # Set to https://your-app.vercel.app
-      - key: PYTHON_VERSION
-        value: "3.12.0"
       - key: MAX_UPLOAD_SIZE_MB
-        value: "50"
-    healthCheckPath: /health/
-    autoDeploy: true
+        value: "5"

@@ -1,30 +1,24 @@
-# Backend Dockerfile – optimized for Render deployment
-FROM python:3.12-slim
+# Backend image (used by docker-compose; Render uses the native Python runtime via render.yaml).
+FROM python:3.13-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    postgresql-client \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install -r requirements.txt
 
-# Copy project
 COPY . .
 
-# Collect static files (whitenoise serves them in production)
-# Use a dummy SECRET_KEY for collectstatic during build – the real one
-# is injected at runtime via environment variables.
-RUN SECRET_KEY=build-placeholder \
-    DATABASE_URL=sqlite:///placeholder.db \
-    python manage.py collectstatic --noinput
+# collectstatic needs settings to import; these placeholders never reach runtime.
+RUN SECRET_KEY=build JWT_SECRET=build DATABASE_URL=sqlite:///tmp/build.db \
+    python manage.py collectstatic --noinput \
+    && useradd --create-home --uid 10001 app \
+    && mkdir -p /app/media && chown -R app /app/media
 
-# Expose port
+USER app
 EXPOSE 8000
 
-# Run gunicorn (Render injects $PORT at runtime; fallback to 8000)
-CMD gunicorn esg_platform.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 4
+CMD ["sh", "-c", "gunicorn esg_platform.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers ${WEB_CONCURRENCY:-2} --threads 4 --timeout 120 --access-logfile -"]

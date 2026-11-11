@@ -1,268 +1,205 @@
-# Breathe ESG Ingestion Platform
+# Breathe ESG
 
-A production-style prototype for ingesting, normalizing, and reviewing ESG (Environmental, Social, and Governance) emissions data from multiple enterprise systems.
+**Turn messy SAP, utility and travel exports into reviewed, audit-locked GHG Protocol emissions data, with an AI briefing on top.**
+
+[![CI](https://github.com/HarshBathija-04/Breathe-ESG/actions/workflows/ci.yml/badge.svg)](https://github.com/HarshBathija-04/Breathe-ESG/actions/workflows/ci.yml)
+
+| | |
+|---|---|
+| **Live demo** | `https://breathe-esg.vercel.app` *(placeholder, set after the first Vercel deploy)* |
+| **API** | `https://breathe-esg-api.onrender.com/health` *(placeholder, set after the first Render deploy)* |
+| **Demo logins** | one-click on the sign-in page: Reviewer, Analyst, Admin |
+
+> The API runs on Render's free plan. If it has been idle, the first request can take 30 to 60 seconds; the app shows a "waking up the server" notice while it starts.
+
+## Features
+
+- **Multi-source ingestion**: SAP fuel/procurement CSVs (English or German headers, semicolon delimiters, decimal commas), utility portal electricity exports, and Concur/Navan-style travel files.
+- **Normalization to GHG Protocol scopes** with DEFRA 2024 and IEA emission factors, unit conversion (MWh to kWh, tonnes to kg) and flight distances derived from airport codes.
+- **Anomaly detection**: negative or zero values, consumption spikes, duplicates, missing airports and distances, physically impossible values. Flagged records are held out of reportable totals until resolved.
+- **Review workflow** with role-based permissions: analysts prepare, reviewers approve or reject with reasons, approved records lock for audit.
+- **Immutable audit trail** of every ingest, edit, decision, lock and anomaly resolution, with before and after snapshots.
+- **AI emissions briefing** (Groq, `openai/gpt-oss-120b`): an executive summary with highlights, data-quality risks and next steps, generated server-side from aggregated numbers only.
+- **Multi-tenant data model**: every row is scoped to a tenant; raw source rows are stored untouched with a SHA-256 hash.
+
+## Screenshots
+
+| Landing | Dashboard |
+|---|---|
+| ![Landing page](docs/screenshots/landing-desktop.png) | ![Dashboard](docs/screenshots/dashboard-desktop.png) |
+| **AI briefing** | **Review queue** |
+| ![AI briefing](docs/screenshots/ai-briefing-desktop.png) | ![Review queue](docs/screenshots/review-desktop.png) |
+| **Ingestion** | **Mobile (375 px)** |
+| ![Ingestion](docs/screenshots/ingestion-desktop.png) | ![Mobile dashboard](docs/screenshots/dashboard-mobile.png) |
+
+More in [`docs/screenshots/`](docs/screenshots/).
 
 ## Architecture
 
-### Backend
-- **Django 5** with Django REST Framework
-- **PostgreSQL** for data persistence
-- **JWT Authentication** via PyJWT
-- **9 Django apps** with service layer pattern:
-  - `tenant` - Multi-tenant isolation
-  - `auth_core` - Custom user model with roles
-  - `sources` - Source system configuration
-  - `ingestion` - File upload and parsing pipeline
-  - `normalization` - Canonical activity conversion
-  - `emissions` - Dashboard aggregation APIs
-  - `review` - Analyst approval workflow
-  - `audit` - Immutable audit trail
-  - `anomaly` - Data quality detection
+```mermaid
+flowchart LR
+  subgraph Vercel
+    SPA[React 19 + Vite SPA]
+  end
+  subgraph Render
+    API[Django 5.2 + DRF<br/>gunicorn]
+    PIPE[Ingestion pipeline<br/>parse, normalize, detect]
+  end
+  DB[(Shared Render Postgres<br/>schema breathe_esg)]
+  GROQ[Groq API<br/>gpt-oss-120b]
+  GHA[GitHub Actions<br/>keep-alive]
 
-### Frontend
-- **React 19** with TypeScript
-- **Vite** build tooling
-- **Tailwind CSS** for styling
-- **shadcn/ui** component library
-- **Recharts** for data visualization
-
-### Data Sources
-1. **SAP** - Fuel and procurement CSV exports (German/English headers)
-2. **Utility** - Electricity portal CSV exports
-3. **Travel** - Concur/Navan-style travel CSV exports
-
-## Quick Start
-
-### Prerequisites
-- Docker and Docker Compose
-- Node.js 20+ (for local frontend development)
-- Python 3.12+ (for local backend development)
-
-### Docker Setup
-
-```bash
-# Clone and start all services
-docker-compose up -d
-
-# Run migrations and seed data
-docker-compose exec backend python manage.py migrate
-docker-compose exec backend python manage.py seed_db
-
-# Access the application
-# Frontend: http://localhost
-# Backend API: http://localhost:8000/api
-# Admin: http://localhost:8000/admin
+  SPA -- JWT, JSON --> API
+  API --> PIPE
+  API -- search_path --> DB
+  PIPE --> DB
+  API -- aggregated stats only --> GROQ
+  GHA -- GET /health every 10 min --> API
 ```
 
-### Local Development
+Upload flow: `CSV -> RawRecord (immutable, hashed) -> NormalizedActivity (scope, factor, CO2e) -> AnomalyFlag -> ReviewDecision -> LOCKED`, with an `AuditLog` entry at each step. See [`docs/MODEL.md`](docs/MODEL.md) for the data model and [`docs/DECISIONS.md`](docs/DECISIONS.md) for the reasoning.
 
-**Backend:**
+## Tech stack
+
+| Layer | Tools |
+|---|---|
+| Frontend | React 19, TypeScript, Vite 7, Tailwind CSS 3, Radix primitives (shadcn/ui), Recharts, Sonner |
+| Backend | Python 3.13, Django 5.2 LTS, Django REST Framework, PyJWT, Argon2, WhiteNoise, gunicorn |
+| Data | PostgreSQL 16 (one schema per app via `search_path`) |
+| AI | Groq Python SDK, `openai/gpt-oss-120b` |
+| Quality | pytest + pytest-django, ruff, ESLint, Prettier, Vitest, GitHub Actions |
+| Hosting | Render (API), Render Postgres, Vercel (SPA) |
+
+## Local setup
+
+Prerequisites: Python 3.13, Node 20+, and a PostgreSQL database (Docker works).
+
 ```bash
+# 1. Configuration
+cp .env.example .env          # set DATABASE_URL, optionally GROQ_API_KEY
+
+# 2. Backend (http://localhost:5110)
 cd backend
-pip install -r requirements.txt
-cp .env.example .env
-# Edit .env with your database credentials
-python manage.py migrate
-python manage.py seed_db
-python manage.py runserver
-```
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements-dev.txt
+python manage.py migrate      # creates the breathe_esg schema
+python manage.py seed_db      # demo tenant, users and sample data (idempotent)
+python manage.py runserver 5110
 
-**Frontend:**
-```bash
-cd app
+# 3. Frontend (http://localhost:5205)
+cd ../app
+cp .env.example .env          # VITE_API_URL=http://localhost:5110/api
 npm install
-cp .env.example .env
-# Edit .env with your API URL
 npm run dev
 ```
 
-### Demo Credentials
-| Role | Email | Password |
-|------|-------|----------|
-| Admin | admin@democorp.com | admin123 |
-| Analyst | analyst@democorp.com | analyst123 |
-| Reviewer | reviewer@democorp.com | reviewer123 |
+Or run the production-like stack with Docker: `docker compose up --build`
+(frontend on http://localhost:5205, API on http://localhost:5110).
 
-## Project Structure
+### Tests and linting
 
-```
-├── backend/                 # Django backend
-│   ├── apps/               # Django applications
-│   │   ├── tenant/         # Multi-tenant core
-│   │   ├── auth_core/      # Authentication
-│   │   ├── sources/        # Source systems
-│   │   ├── ingestion/      # Upload & parsing
-│   │   ├── normalization/  # Data normalization
-│   │   ├── emissions/      # Dashboard APIs
-│   │   ├── review/         # Review workflow
-│   │   ├── audit/          # Audit trail
-│   │   └── anomaly/        # Anomaly detection
-│   ├── esg_platform/       # Django project config
-│   ├── requirements.txt
-│   └── Dockerfile
-├── app/                     # React frontend
-│   ├── src/
-│   │   ├── api/            # API clients
-│   │   ├── components/     # React components
-│   │   ├── context/        # Auth context
-│   │   └── pages/          # Page components
-│   ├── Dockerfile
-│   └── package.json
-├── data/                    # Sample CSV files
-│   ├── sap_fuel.csv
-│   ├── sap_fuel_german.csv
-│   ├── utility_electricity.csv
-│   └── travel_data.csv
-├── docs/                    # Documentation
-│   ├── MODEL.md            # Data model design
-│   ├── DECISIONS.md        # Architectural decisions
-│   ├── TRADEOFFS.md        # Deliberate omissions
-│   └── SOURCES.md          # Source research
-└── docker-compose.yml
+```bash
+cd backend && ruff check . && pytest          # needs DATABASE_URL; creates a test database
+cd app && npm run lint && npm run format:check && npm test && npm run build
 ```
 
-## API Endpoints
+### Demo accounts
 
-### Authentication
-- `POST /api/auth/login/` - Login with email/password
-- `GET /api/auth/me/` - Get current user
+| Role | Email | Password | Can |
+|---|---|---|---|
+| Reviewer | reviewer@democorp.com | reviewer123 | approve, reject, resolve anomalies |
+| Analyst | analyst@democorp.com | analyst123 | upload and browse |
+| Admin | admin@democorp.com | admin123 | everything, plus `/admin` |
 
-### Ingestion
-- `POST /api/ingest/sap/` - Upload SAP CSV
-- `POST /api/ingest/utility/` - Upload utility CSV
-- `POST /api/ingest/travel/` - Upload travel CSV
-- `GET /api/ingest/jobs/` - List ingestion jobs
+These are public demo credentials seeded into a demo tenant; do not reuse them anywhere real.
 
-### Review
-- `GET /api/review/pending/` - Get pending activities
-- `POST /api/review/{id}/action/` - Approve/reject activity
-- `POST /api/review/bulk-approve/` - Bulk approve
+## Environment variables
 
-### Dashboard
-- `GET /api/dashboard/stats/` - Dashboard statistics
+### Backend (Render)
 
-### Audit
-- `GET /api/audit/` - Audit timeline
-- `GET /api/audit/{type}/{id}/` - Entity history
+| Variable | Required | Example / default | Notes |
+|---|---|---|---|
+| `DATABASE_URL` | yes | `postgresql://user:pass@host:5432/db` | the shared Render Postgres |
+| `DB_SCHEMA` | no | `breathe_esg` | Postgres schema for this app's tables |
+| `SECRET_KEY` | prod | generated by Render | required when `DEBUG=False` |
+| `JWT_SECRET` | prod | generated by Render | signs access tokens |
+| `DEBUG` | no | `False` | never `True` in production |
+| `FRONTEND_URL` | yes | `https://breathe-esg.vercel.app` | CORS/CSRF allow-list, comma-separated |
+| `GROQ_API_KEY` | no | `gsk_...` | enables the AI briefing |
+| `GROQ_TEXT_MODEL` | no | `openai/gpt-oss-120b` | |
+| `ALLOWED_HOSTS` | no | `localhost,127.0.0.1` | Render hostname is added automatically |
+| `MAX_UPLOAD_SIZE_MB` | no | `5` | |
+| `THROTTLE_AUTH` / `THROTTLE_AI` / `THROTTLE_UPLOAD` | no | `10/min` / `6/min` / `20/hour` | rate limits |
+| `PYTHON_VERSION` | Render | `3.13.5` | set in `render.yaml` |
 
-### Anomalies
-- `GET /api/anomalies/` - List anomaly flags
-- `POST /api/anomalies/{id}/resolve/` - Resolve flag
+### Frontend (Vercel)
 
-## Documentation
+| Variable | Example | Notes |
+|---|---|---|
+| `VITE_API_URL` | `https://breathe-esg-api.onrender.com/api` | must end with `/api` |
 
-- **MODEL.md** - Detailed data model with multi-tenancy, audit design, and scope handling
-- **DECISIONS.md** - Every architectural decision and its rationale
-- **TRADEOFFS.md** - Three deliberately skipped features and why
-- **SOURCES.md** - Research on real-world data formats for each source
+### GitHub Actions
 
-## Ingestion Pipeline
+| Repository variable | Example | Used by |
+|---|---|---|
+| `BACKEND_URL` | `https://breathe-esg-api.onrender.com` | `keep-alive.yml` |
 
-1. **Upload** - File uploaded via API
-2. **Parse** - Source-specific parser reads CSV, handles headers, validates rows
-3. **Normalize** - Raw records converted to canonical activities with emission factors
-4. **Anomaly Detection** - Flags suspicious patterns (spikes, negatives, duplicates)
-5. **Review** - Analysts approve/reject activities
-6. **Lock** - Approved records locked for audit
+## Deploy
 
-## Key Features
+Full walkthrough: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
-- **Multi-tenant architecture** - Data isolation at the application layer
-- **Immutable audit trail** - Append-only logging with before/after snapshots
-- **Anomaly detection** - Automatic flagging of suspicious data patterns
-- **German header support** - SAP exports with German column names
-- **Unit normalization** - Automatic conversion (MWh→kWh, ton→kg)
-- **Distance derivation** - Flight distances derived from airport codes
-- **Role-based access** - Admin, Analyst, Reviewer, Viewer roles
-- **Review workflow** - Approve, reject, with reason tracking
+1. **Render API**: New -> Blueprint -> this repo. Set `DATABASE_URL` to the shared Render Postgres URL, `FRONTEND_URL` to the Vercel URL and `GROQ_API_KEY`. The build migrates and seeds automatically. The Blueprint deliberately has no `databases:` block.
+2. **Vercel SPA**: import the repo with **Root Directory `app`**, set `VITE_API_URL=https://<render-service>.onrender.com/api`.
+3. **Keep-alive**: add the repository variable `BACKEND_URL=https://<render-service>.onrender.com`.
 
-## Deployment (Supabase + Render + Vercel)
+## API overview
 
-This project is configured for deployment with:
-- **Database**: [Supabase](https://supabase.com) (managed PostgreSQL)
-- **Backend**: [Render](https://render.com) (Django + Gunicorn)
-- **Frontend**: [Vercel](https://vercel.com) (Vite React SPA)
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/health` | liveness + `SELECT 1` (`{"status":"ok","db":"ok"}`, 503 if the DB is down) |
+| POST | `/api/auth/login/` | email + password -> JWT (rate limited) |
+| GET | `/api/auth/me/` | current user |
+| POST | `/api/ingest/{sap,utility,travel}/` | upload a CSV and run the pipeline |
+| GET | `/api/ingest/jobs/` | ingestion history |
+| GET | `/api/dashboard/stats/` | KPIs, scope/category/monthly totals |
+| POST | `/api/dashboard/insights/` | AI emissions briefing (rate limited) |
+| GET | `/api/review/pending/` | review queue (paginated) |
+| POST | `/api/review/{id}/action/` | approve or reject (reviewer/admin) |
+| POST | `/api/activities/{id}/lock/` | lock an approved record |
+| GET | `/api/anomalies/`, `/api/anomalies/stats/` | anomaly flags |
+| POST | `/api/anomalies/{id}/resolve/` | resolve, confirm or ignore (reviewer/admin) |
+| GET | `/api/audit/` | audit timeline |
 
-### Step 1: Supabase Database
+Errors always come back as JSON: `{"error": "message", "code": "machine_code", "details": {...}}`.
 
-1. Create a new project at [supabase.com](https://supabase.com)
-2. Go to **Settings → Database → Connection string → URI**
-3. Copy the connection string (format: `postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres`)
-4. Save it — you'll need it for the Render backend setup
-5. No manual schema setup is needed; Django migrations handle everything
+## Project structure
 
-### Step 2: Render Backend
+```
+.
+├── app/                    React SPA (Vercel root directory)
+│   ├── public/             favicon, OG image, downloadable sample CSVs
+│   └── src/
+│       ├── api/            typed API clients (axios, JWT, cold-start tracking)
+│       ├── components/     app shell, shared states, AI briefing, ui/ primitives
+│       ├── context/        auth session
+│       ├── lib/            formatting, HTTP helpers, theme constants (+ tests)
+│       └── pages/          landing, login, dashboard, ingestion, review, anomalies, audit
+├── backend/                Django API (Render root directory)
+│   ├── apps/               tenant, auth_core, sources, ingestion, normalization,
+│   │                       emissions (dashboard + AI), review, audit, anomaly
+│   ├── esg_platform/       settings, URLs, error handler, throttles
+│   ├── sample_data/        CSVs used by the seed command
+│   ├── tests/              pytest suite
+│   └── build.sh            Render build: install, collectstatic, migrate, seed
+├── docs/                   model, decisions, trade-offs, sources, deployment, screenshots
+├── .github/workflows/      ci.yml, keep-alive.yml
+├── docker-compose.yml      local production-like stack
+└── render.yaml             Render Blueprint (API only)
+```
 
-**Option A: Blueprint (recommended)**
-1. Push your code to GitHub
-2. Go to [Render Dashboard](https://dashboard.render.com) → **New** → **Blueprint**
-3. Connect your repo — Render will auto-detect `render.yaml`
-4. Set the required env vars marked `sync: false`:
-   - `DATABASE_URL` → paste your Supabase connection string
-   - `ALLOWED_HOSTS` → `your-service-name.onrender.com`
-   - `CORS_ALLOWED_ORIGINS` → `https://your-app.vercel.app`
-   - `CSRF_TRUSTED_ORIGINS` → `https://your-app.vercel.app`
-5. Deploy — the build script will auto-run migrations and seed demo data
+## Further reading
 
-**Option B: Manual Setup**
-1. Go to [Render Dashboard](https://dashboard.render.com) → **New** → **Web Service**
-2. Connect your GitHub repo
-3. Configure:
-   - **Root Directory**: `backend`
-   - **Runtime**: Python 3
-   - **Build Command**: `./build.sh`
-   - **Start Command**: `gunicorn esg_platform.wsgi:application --bind 0.0.0.0:$PORT --workers 4`
-4. Set environment variables:
-
-| Variable | Value |
-|----------|-------|
-| `DEBUG` | `False` |
-| `SECRET_KEY` | *(generate a 64-char random string)* |
-| `DATABASE_URL` | *(Supabase connection string)* |
-| `JWT_SECRET` | *(generate a 64-char random string)* |
-| `ALLOWED_HOSTS` | `your-service-name.onrender.com` |
-| `CORS_ALLOWED_ORIGINS` | `https://your-app.vercel.app` |
-| `CSRF_TRUSTED_ORIGINS` | `https://your-app.vercel.app` |
-| `PYTHON_VERSION` | `3.12.0` |
-| `MAX_UPLOAD_SIZE_MB` | `50` |
-
-5. Set **Health Check Path**: `/health/`
-6. Deploy
-
-### Step 3: Vercel Frontend
-
-1. Go to [Vercel Dashboard](https://vercel.app) → **New Project**
-2. Import your GitHub repo
-3. Configure:
-   - **Root Directory**: `app`
-   - **Framework Preset**: Vite *(auto-detected)*
-   - **Build Command**: `npm run build`
-   - **Output Directory**: `dist`
-4. Set environment variable:
-
-| Variable | Value |
-|----------|-------|
-| `VITE_API_URL` | `https://your-service-name.onrender.com/api` |
-
-5. Deploy
-
-### Post-Deploy Verification
-
-1. ✅ Visit your Vercel URL — the login page should load
-2. ✅ Login with `admin@democorp.com` / `admin123`
-3. ✅ Navigate the dashboard — data should load from the API
-4. ✅ Check `https://your-backend.onrender.com/health/` returns `{"status": "ok"}`
-
-### Troubleshooting
-
-| Issue | Fix |
-|-------|-----|
-| CORS errors in browser console | Verify `CORS_ALLOWED_ORIGINS` on Render matches your exact Vercel URL (with `https://`) |
-| 500 errors on backend | Check Render logs; likely `DATABASE_URL` is incorrect or Supabase project is paused |
-| Login fails silently | Confirm `VITE_API_URL` on Vercel points to the correct Render URL with `/api` suffix |
-| Static files 404 | Ensure `whitenoise` is in middleware and `collectstatic` ran in the build step |
-
-## License
-
-This is a technical assignment prototype for Breathe ESG.
-
+- [`docs/MODEL.md`](docs/MODEL.md): data model, multi-tenancy, audit design
+- [`docs/DECISIONS.md`](docs/DECISIONS.md): architectural decisions
+- [`docs/TRADEOFFS.md`](docs/TRADEOFFS.md): what was deliberately not built
+- [`docs/SOURCES.md`](docs/SOURCES.md): research on real-world source formats

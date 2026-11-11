@@ -102,3 +102,31 @@ For this prototype, emission factors are hardcoded in the `NormalizationService`
 - Client-specific factors verified by auditors
 - Regional grid factors rather than global averages
 - Regularly updated as new science becomes available
+
+---
+
+### Portfolio upgrade decisions (2026)
+
+- **Kept the existing split.** The repo already had a JSON API (`backend/`)
+  and a separate SPA (`app/`), so it was hardened and redesigned in place
+  rather than restructured.
+- **One shared Postgres, one schema per app.** `DATABASE_URL` points at a
+  database shared with other projects; `DB_SCHEMA` (default `breathe_esg`) is
+  created on connect and set as the connection `search_path`.
+- **Flagged records are not reportable.** Dashboard totals and the AI briefing
+  exclude `FLAGGED` and `REJECTED` records and report the flagged volume
+  separately. Including them let a single outlier (a 225,000,000 km "trip")
+  dominate every chart.
+- **Locale-aware numbers.** German SAP exports use `6709,84`; the old parser
+  stripped the comma and inflated values 100x. A lone comma followed by
+  anything other than three digits is now a decimal mark; whichever of `,`/`.`
+  comes last wins when both appear.
+- **AI via Groq, server-side only.** `POST /api/dashboard/insights/` sends
+  aggregated numbers (no raw rows, no names) to `openai/gpt-oss-120b`. Missing
+  keys, rate limits and provider errors map to 503/429/502 with readable
+  messages. The rule-based anomaly detection was kept; the LLM only summarizes.
+- **Registration removed.** The old public `/api/auth/register/` let anyone
+  create an admin in any tenant. Users come from the seed or Django admin.
+- **Argon2 password hashing**, with PBKDF2 retained so old hashes still verify.
+- **Throttling uses the in-process cache.** Fine for one gunicorn worker on the
+  free plan; switch to a shared cache before scaling out.

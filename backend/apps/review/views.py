@@ -26,7 +26,6 @@ def pending_review(request):
     service = ReviewService(request.user.tenant)
     activities = service.get_pending_activities()
 
-    # Optional status filter
     status_filter = request.query_params.get('status')
     if status_filter:
         activities = activities.filter(status=status_filter)

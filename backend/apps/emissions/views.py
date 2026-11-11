@@ -23,22 +23,9 @@ ORDERING_FIELDS = {'created_at', 'period_start', 'co2e', 'activity_value', 'stat
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def dashboard_stats(request):
-    """
-    Get dashboard statistics for the current tenant.
-
-    Returns:
-    - Total imported records
-    - Pending review count
-    - Flagged count
-    - Approved count
-    - Locked count
-    - Total CO2e by scope
-    - Recent ingestion jobs
-    - Anomaly summary
-    """
+    """KPIs, CO2e by scope/category/month, recent jobs and anomaly counts for the tenant."""
     tenant = request.user.tenant
 
-    # Activity counts by status
     activity_stats = NormalizedActivity.objects.filter(
         tenant=tenant
     ).values('status').annotate(count=Count('id'))
@@ -66,7 +53,6 @@ def dashboard_stats(request):
     flagged_co2e = NormalizedActivity.objects.filter(
         tenant=tenant, status=NormalizedActivity.STATUS_FLAGGED).aggregate(total=Sum('co2e'))['total'] or 0
 
-    # Recent ingestion jobs
     recent_jobs = DataIngestionJob.objects.filter(
         tenant=tenant
     ).select_related('source_system').order_by('-created_at')[:5]
@@ -81,20 +67,17 @@ def dashboard_stats(request):
             key = row['month'].strftime('%Y-%m')
             by_month.setdefault(key, {'month': key})[row['scope']] = float(row['total_co2e'] or 0)
 
-    job_list = []
-    for job in recent_jobs:
-        job_list.append({
-            'id': str(job.id),
-            'source_type': job.source_system.source_type,
-            'status': job.status,
-            'original_filename': job.original_filename,
-            'total_rows': job.total_rows,
-            'parsed_rows': job.parsed_rows,
-            'normalized_rows': job.normalized_rows,
-            'created_at': job.created_at.isoformat(),
-        })
+    job_list = [{
+        'id': str(job.id),
+        'source_type': job.source_system.source_type,
+        'status': job.status,
+        'original_filename': job.original_filename,
+        'total_rows': job.total_rows,
+        'parsed_rows': job.parsed_rows,
+        'normalized_rows': job.normalized_rows,
+        'created_at': job.created_at.isoformat(),
+    } for job in recent_jobs]
 
-    # Anomaly summary
     anomaly_summary = AnomalyFlag.objects.filter(
         tenant=tenant
     ).values('status').annotate(count=Count('id'))
@@ -125,17 +108,14 @@ def activities_list(request):
         tenant=tenant
     ).select_related('source_record', 'source_record__source_system')
 
-    # Filter by status
     status = request.query_params.get('status')
     if status:
         activities = activities.filter(status=status)
 
-    # Filter by scope
     scope = request.query_params.get('scope')
     if scope:
         activities = activities.filter(scope=scope)
 
-    # Filter by category
     category = request.query_params.get('category')
     if category:
         activities = activities.filter(category=category)

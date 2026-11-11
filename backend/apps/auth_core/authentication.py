@@ -2,7 +2,7 @@
 JWT Authentication for Django REST Framework.
 Extracts JWT from Authorization header, validates it, and sets user + tenant.
 """
-from datetime import UTC
+from datetime import UTC, datetime, timedelta
 
 import jwt
 from django.conf import settings
@@ -25,9 +25,7 @@ class JWTAuthentication(authentication.BaseAuthentication):
         if not auth_header or auth_header[0].lower() != self.keyword.lower().encode():
             return None
 
-        if len(auth_header) == 1:
-            raise exceptions.AuthenticationFailed('Invalid token header.')
-        if len(auth_header) > 2:
+        if len(auth_header) != 2:
             raise exceptions.AuthenticationFailed('Invalid token header.')
 
         try:
@@ -57,7 +55,6 @@ class JWTAuthentication(authentication.BaseAuthentication):
         if not user.is_active:
             raise exceptions.AuthenticationFailed('User inactive.')
 
-        # Set tenant on request for middleware to pick up
         if request:
             request.tenant = user.tenant
 
@@ -65,9 +62,7 @@ class JWTAuthentication(authentication.BaseAuthentication):
 
 
 def generate_token(user):
-    """Generate JWT token for user."""
-    from datetime import datetime, timedelta
-
+    """Signed access token carrying the user, tenant and role."""
     now = datetime.now(UTC)
     payload = {
         'user_id': str(user.id),

@@ -22,9 +22,3 @@ class IngestionJobSerializer(serializers.ModelSerializer):
             'created_at', 'started_at', 'completed_at',
         ]
         read_only_fields = fields
-
-
-class UploadSerializer(serializers.Serializer):
-    """Serializer for file upload requests."""
-    file = serializers.FileField()
-    source_system_id = serializers.UUIDField()

@@ -195,18 +195,8 @@ class NormalizedActivity(models.Model):
             self.co2e = self.activity_value * self.emission_factor
 
     def can_edit(self):
-        """Check if this record can be edited."""
-        return self.status in [
-            self.STATUS_PENDING_REVIEW,
-            self.STATUS_FLAGGED,
-        ]
-
-    def can_approve(self):
-        """Check if this record can be approved."""
-        return self.status in [
-            self.STATUS_PENDING_REVIEW,
-            self.STATUS_FLAGGED,
-        ]
+        """Only open records (pending or flagged) can be edited or reviewed."""
+        return self.status in [self.STATUS_PENDING_REVIEW, self.STATUS_FLAGGED]
 
     def lock_for_audit(self):
         """Lock this record for audit."""

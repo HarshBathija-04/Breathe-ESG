@@ -5,7 +5,7 @@ RawRecord is immutable - it stores exactly what came from the source.
 import hashlib
 import json
 import uuid
-from datetime import UTC
+from datetime import UTC, datetime
 
 from django.db import models
 
@@ -95,8 +95,7 @@ class DataIngestionJob(models.Model):
         return f"Job {self.id} ({self.source_system.source_type}) - {self.status}"
 
     def add_log(self, level, message, details=None):
-        """Append structured log entry."""
-        from datetime import datetime
+        """Append a structured log entry and save it immediately."""
         entry = {
             'timestamp': datetime.now(UTC).isoformat(),
             'level': level,

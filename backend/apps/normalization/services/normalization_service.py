@@ -4,7 +4,8 @@ NormalizationService - converts RawRecords into NormalizedActivities.
 This is the core transformation logic. Each source type has different
 normalization rules but all produce the same canonical schema.
 """
-from datetime import datetime
+import calendar
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 from apps.ingestion.models import DataIngestionJob, RawRecord
@@ -67,18 +68,8 @@ class NormalizationService:
         ('travel', 'rail'): Decimal('0.041'),  # per passenger km
     }
 
-    # Unit conversion factors (convert to base unit)
-    UNIT_CONVERSIONS = {
-        'L': Decimal('1'),
-        'l': Decimal('1'),
-        'kg': Decimal('1'),
-        'ton': Decimal('1000'),
-        'kWh': Decimal('1'),
-        'mwh': Decimal('1000'),
-        'km': Decimal('1'),
-        'night': Decimal('1'),
-        'nights': Decimal('1'),
-    }
+    # Multipliers to the base unit, keyed by lowercase unit; anything else is already base.
+    UNIT_CONVERSIONS = {'ton': Decimal('1000'), 'mwh': Decimal('1000')}
 
     def __init__(self, ingestion_job):
         self.job = ingestion_job
@@ -124,7 +115,6 @@ class NormalizationService:
         """Normalize SAP fuel record."""
         payload = raw_record.original_payload
 
-        # Extract values from normalized payload
         quantity = self._parse_decimal(payload.get('quantity', '0'))
         unit = payload.get('unit_normalized', '')
         fuel_type = payload.get('fuel_type_normalized', '').lower()
@@ -132,27 +122,10 @@ class NormalizationService:
         posting_date = payload.get('posting_date_parsed', '')
         vendor = payload.get('vendor', '')
 
-        # Normalize unit
         normalized_unit = self._normalize_unit(unit)
-
-        # Convert quantity to base unit
-        converted_value = self._convert_to_base_unit(quantity, unit)
-
-        # Map fuel type to emission factor
-        ef_key = ('fuel', fuel_type)
-        emission_factor = self.EMISSION_FACTORS.get(ef_key, Decimal('0'))
-
-        # If unit is mass (kg/ton), use mass-based EF
-        if unit.lower() in ['kg', 'ton', 'tons', 't']:
-            ef_key = ('fuel', f'{fuel_type}_mass')
-            mass_ef = self.EMISSION_FACTORS.get(ef_key)
-            if mass_ef:
-                emission_factor = mass_ef
-
-        # Parse period
+        converted_value = quantity * self.UNIT_CONVERSIONS.get(unit.lower(), Decimal('1'))
+        emission_factor = self.EMISSION_FACTORS.get(('fuel', fuel_type), Decimal('0'))
         period = self._parse_period(posting_date)
-
-        # Calculate CO2e
         co2e = converted_value * emission_factor
 
         activity = NormalizedActivity(
@@ -186,15 +159,12 @@ class NormalizationService:
         period_start = payload.get('billing_period_start_parsed', '')
         period_end = payload.get('billing_period_end_parsed', '')
 
-        # Emission factor for grid electricity
-        emission_factor = self.EMISSION_FACTORS.get(
-            ('electricity', 'grid_electricity'),
-            Decimal('0.309')
-        )
-
+        emission_factor = self.EMISSION_FACTORS[('electricity', 'grid_electricity')]
         co2e = consumption * emission_factor
-
-        period = self._parse_period_range(period_start, period_end)
+        period = {
+            'start': self._parse_date(period_start) or date.today(),
+            'end': self._parse_date(period_end) or date.today(),
+        }
 
         activity = NormalizedActivity(
             tenant=raw_record.tenant,
@@ -244,16 +214,9 @@ class NormalizationService:
             activity_value = distance
             unit = 'km'
 
-        emission_factor = self.EMISSION_FACTORS.get(
-            ('travel', sub_category),
-            Decimal('0')
-        )
-
+        emission_factor = self.EMISSION_FACTORS.get(('travel', sub_category), Decimal('0'))
         co2e = activity_value * emission_factor
-
-        # Parse trip date
-        trip_date = payload.get('trip_date_parsed', '')
-        period = self._parse_period(trip_date)
+        period = self._parse_period(payload.get('trip_date_parsed', ''))
 
         activity = NormalizedActivity(
             tenant=raw_record.tenant,
@@ -286,55 +249,18 @@ class NormalizationService:
         }
         return unit_map.get(raw_unit.lower(), raw_unit)
 
-    def _convert_to_base_unit(self, quantity, raw_unit):
-        """Convert quantity to base unit."""
-        factor = self.UNIT_CONVERSIONS.get(raw_unit.lower(), Decimal('1'))
-        return quantity * factor
-
     def _parse_period(self, date_str):
-        """Parse a date string and create a month-long period."""
-        from datetime import date
-
-        if isinstance(date_str, str) and date_str:
-            try:
-                dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-                start = dt.date()
-            except (ValueError, TypeError):
-                start = date.today()
-        elif isinstance(date_str, date):
-            start = date_str
-        else:
-            start = date.today()
-
-        # End of month
-        if start.month == 12:
-            end = date(start.year, 12, 31)
-        else:
-            end = date(start.year, start.month + 1, 1)
-            end = date(end.year, end.month, 1)
-            # Go back one day
-            end = date(start.year, start.month + 1, 1) if start.month < 12 else date(start.year + 1, 1, 1)
-            end = end - __import__('datetime').timedelta(days=1)
-
-        return {'start': start, 'end': end}
-
-    def _parse_period_range(self, start_str, end_str):
-        """Parse explicit period start and end."""
-        from datetime import date
-
-        start = self._parse_date(start_str) or date.today()
-        end = self._parse_date(end_str) or date.today()
-
+        """ISO date string -> the calendar month containing it (today if missing)."""
+        start = self._parse_date(date_str) or date.today()
+        end = start.replace(day=calendar.monthrange(start.year, start.month)[1])
         return {'start': start, 'end': end}
 
     def _parse_date(self, date_str):
-        """Parse date string to date object."""
-
+        """ISO date/datetime string -> date, or None."""
         if isinstance(date_str, str) and date_str:
             try:
-                dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-                return dt.date()
-            except (ValueError, TypeError):
+                return datetime.fromisoformat(date_str.replace('Z', '+00:00')).date()
+            except ValueError:
                 pass
         return None
 

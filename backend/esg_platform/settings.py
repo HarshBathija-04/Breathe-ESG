@@ -186,13 +186,6 @@ GROQ_TEXT_MODEL = os.environ.get('GROQ_TEXT_MODEL', 'openai/gpt-oss-120b')
 # Ingestion
 MAX_UPLOAD_SIZE_MB = int(os.environ.get('MAX_UPLOAD_SIZE_MB', '5'))
 DATA_UPLOAD_MAX_MEMORY_SIZE = (MAX_UPLOAD_SIZE_MB + 1) * 1024 * 1024
-INGESTION_BATCH_SIZE = int(os.environ.get('INGESTION_BATCH_SIZE', '1000'))
-
-ANOMALY_THRESHOLDS = {
-    'ELECTRICITY_SPIKE_PCT': float(os.environ.get('ELECTRICITY_SPIKE_PCT', '300')),
-    'FUEL_NEGATIVE_VALUE': True,
-    'DUPLICATE_WINDOW_DAYS': int(os.environ.get('DUPLICATE_WINDOW_DAYS', '30')),
-}
 
 # ---------------------------------------------------------------------------
 # Security headers (SecurityMiddleware + clickjacking middleware).

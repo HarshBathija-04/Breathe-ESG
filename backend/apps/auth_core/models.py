@@ -16,7 +16,7 @@ class UserManager(BaseUserManager):
             raise ValueError('The Email field must be set')
         email = self.normalize_email(email)
 
-        # Ensure a tenant exists or is assigned if not provided
+        # createsuperuser has no tenant prompt: fall back to the first (demo) tenant.
         if 'tenant' not in extra_fields:
             tenant = Tenant.objects.first()
             if not tenant:
@@ -95,8 +95,5 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     @property
     def can_review(self):
-        return self.role in [self.ROLE_ADMIN, self.ROLE_REVIEWER]
-
-    @property
-    def can_approve(self):
+        """Reviewers and admins approve, reject, lock and resolve anomalies."""
         return self.role in [self.ROLE_ADMIN, self.ROLE_REVIEWER]

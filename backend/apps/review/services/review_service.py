@@ -6,6 +6,8 @@ Enforces:
 - Audit trail on every decision
 - Immutable decisions (no changing after fact)
 """
+from django.db import transaction
+
 from apps.audit.services.audit_service import AuditService
 from apps.normalization.models import NormalizedActivity
 
@@ -52,6 +54,7 @@ class ReviewService:
             'decisions': decisions,
         }
 
+    @transaction.atomic
     def submit_decision(self, activity_id, user, decision, reason=''):
         """
         Submit a review decision. Returns (success, message).
@@ -65,32 +68,19 @@ class ReviewService:
             return False, 'User does not have review permission'
 
         try:
-            activity = NormalizedActivity.objects.get(
-                id=activity_id,
-                tenant=self.tenant,
-            )
+            # Row lock: two reviewers deciding at once cannot both pass the status check.
+            activity = NormalizedActivity.objects.select_for_update().get(id=activity_id, tenant=self.tenant)
         except NormalizedActivity.DoesNotExist:
             return False, 'Activity not found'
 
-        if not activity.can_approve():
+        if not activity.can_edit():
             return False, f'Activity is in {activity.status} state and cannot be reviewed'
 
-        # Create the decision record
-        review_decision = ReviewDecision(
-            tenant=self.tenant,
-            activity=activity,
-            decision=decision,
-            reason=reason,
-            reviewed_by=user,
+        review_decision = ReviewDecision.objects.create(
+            tenant=self.tenant, activity=activity, decision=decision, reason=reason, reviewed_by=user,
         )
-        review_decision.save()
-
-        # Apply the decision
         review_decision.apply_decision()
-
-        # Audit log the decision
-        audit = AuditService(self.tenant)
-        audit.log_review_decision(activity, user, decision, reason)
+        AuditService(self.tenant).log_review_decision(activity, user, decision, reason)
 
         return True, f'Activity {decision.lower()}d successfully'
 

@@ -34,108 +34,58 @@ from .services.utility_parser import UtilityParserService
 logger = logging.getLogger(__name__)
 
 
-def _get_or_create_source(tenant, source_type, name):
-    """Get or auto-create a source system for uploads."""
-    source, created = SourceSystem.objects.get_or_create(
-        tenant=tenant,
-        source_type=source_type,
-        name=name,
-        defaults={'is_active': True, 'config': {}}
-    )
-    return source
-
-
 def _run_pipeline(job, parser_service_class):
-    """Run the full ingestion pipeline."""
+    """Parse -> normalize -> detect anomalies, recording counts and final status on the job."""
     job.status = DataIngestionJob.STATUS_PARSING
     job.save(update_fields=['status'])
 
-    # Step 1: Parse
     parser = parser_service_class(job, job.source_system)
-    parsed, failed, errors = parser.parse_file(job.uploaded_file)
+    parsed, failed, _errors = parser.parse_file(job.uploaded_file)
 
     job.parsed_rows = parsed
     job.failed_rows = failed
     job.total_rows = parsed + failed
     job.save(update_fields=['parsed_rows', 'failed_rows', 'total_rows'])
 
-    # Step 2: Normalize
     if parsed > 0:
-        normalizer = NormalizationService(job)
-        normalized, norm_failed = normalizer.normalize_all()
-        job.normalized_rows = normalized
-        job.save(update_fields=['normalized_rows'])
-
-        # Step 3: Anomaly detection
+        normalized, _norm_failed = NormalizationService(job).normalize_all()  # also saves normalized_rows
         if normalized > 0:
-            detector = AnomalyService(job.tenant)
-            flags = detector.detect_all()
-            job.flagged_rows = flags
+            job.flagged_rows = AnomalyService(job.tenant).detect_all()
             job.save(update_fields=['flagged_rows'])
 
-    # Determine final status
-    if failed > 0 and job.normalized_rows > 0:
-        job.status = DataIngestionJob.STATUS_PARTIAL
-    elif failed == 0 and job.normalized_rows > 0:
-        job.status = DataIngestionJob.STATUS_COMPLETED
-    elif job.normalized_rows == 0:
+    if job.normalized_rows == 0:
         job.status = DataIngestionJob.STATUS_FAILED
-    else:
+    elif failed > 0:
         job.status = DataIngestionJob.STATUS_PARTIAL
-
+    else:
+        job.status = DataIngestionJob.STATUS_COMPLETED
     job.save(update_fields=['status'])
     return job
 
 
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-@throttle_classes([UploadThrottle])
-def ingest_sap(request):
+def _upload_view(source_type, parser_class):
     """
-    Upload and ingest SAP fuel/procurement CSV.
-
-    Expects multipart/form-data with:
-    - file: CSV file
-    - source_system_id: (optional) UUID of existing source system
+    POST multipart/form-data with `file` (CSV) and optional `source_system_id`
+    (UUID of an existing source of this type; otherwise an "Auto-<type>" source is used).
     """
-    return _handle_upload(request, SourceSystem.SOURCE_SAP, SAPParserService)
+    @api_view(['POST'])
+    @permission_classes([IsAuthenticated])
+    @throttle_classes([UploadThrottle])
+    def view(request):
+        return _handle_upload(request, source_type, parser_class)
+    return view
 
 
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-@throttle_classes([UploadThrottle])
-def ingest_utility(request):
-    """
-    Upload and ingest utility electricity CSV.
-
-    Expects multipart/form-data with:
-    - file: CSV file
-    - source_system_id: (optional) UUID of existing source system
-    """
-    return _handle_upload(request, SourceSystem.SOURCE_UTILITY, UtilityParserService)
-
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-@throttle_classes([UploadThrottle])
-def ingest_travel(request):
-    """
-    Upload and ingest travel platform CSV.
-
-    Expects multipart/form-data with:
-    - file: CSV file
-    - source_system_id: (optional) UUID of existing source system
-    """
-    return _handle_upload(request, SourceSystem.SOURCE_TRAVEL, TravelParserService)
+ingest_sap = _upload_view(SourceSystem.SOURCE_SAP, SAPParserService)
+ingest_utility = _upload_view(SourceSystem.SOURCE_UTILITY, UtilityParserService)
+ingest_travel = _upload_view(SourceSystem.SOURCE_TRAVEL, TravelParserService)
 
 
 def _handle_upload(request, source_type, parser_class):
-    """Generic upload handler."""
     file_obj = request.FILES.get('file')
     if not file_obj:
         return Response({'error': 'No file provided'}, status=400)
 
-    # Check file size
     max_size = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
     if file_obj.size > max_size:
         return Response(
@@ -143,12 +93,10 @@ def _handle_upload(request, source_type, parser_class):
             status=400
         )
 
-    # Check file extension
     ext = os.path.splitext(file_obj.name)[1].lower()
     if ext not in ['.csv', '.txt']:
         return Response({'error': 'Only CSV files are supported'}, status=400)
 
-    # Get or create source system
     source_id = request.data.get('source_system_id')
     if source_id:
         try:
@@ -164,13 +112,13 @@ def _handle_upload(request, source_type, parser_class):
         except SourceSystem.DoesNotExist:
             return Response({'error': 'Source system not found'}, status=404)
     else:
-        source = _get_or_create_source(
-            request.user.tenant,
-            source_type,
-            f"Auto-{source_type}"
+        source, _ = SourceSystem.objects.get_or_create(
+            tenant=request.user.tenant,
+            source_type=source_type,
+            name=f'Auto-{source_type}',
+            defaults={'is_active': True, 'config': {}},
         )
 
-    # Create ingestion job
     job = DataIngestionJob(
         tenant=request.user.tenant,
         source_system=source,
@@ -182,14 +130,9 @@ def _handle_upload(request, source_type, parser_class):
     )
     job.save()
 
-    # Run pipeline
     try:
         job = _run_pipeline(job, parser_class)
-
-        # Audit log
-        audit = AuditService(request.user.tenant)
-        audit.log_ingestion(job, request.user)
-
+        AuditService(request.user.tenant).log_ingestion(job, request.user)
         return Response(IngestionJobSerializer(job).data)
 
     except Exception as e:
@@ -227,12 +170,10 @@ def job_list(request):
         tenant=request.user.tenant
     ).select_related('source_system').order_by('-created_at')
 
-    # Filter by status
     status_filter = request.query_params.get('status')
     if status_filter:
         jobs = jobs.filter(status=status_filter)
 
-    # Filter by source type
     source_type = request.query_params.get('source_type')
     if source_type:
         jobs = jobs.filter(source_system__source_type=source_type)

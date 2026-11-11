@@ -3,7 +3,6 @@ Normalization views.
 """
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -13,8 +12,15 @@ from .models import NormalizedActivity
 from .serializers import ActivityEditSerializer, NormalizedActivitySerializer
 
 
-class ActivityPagination(PageNumberPagination):
-    page_size = 50
+def _snapshot(activity):
+    """The editable fields, as stored in the audit log's before/after."""
+    return {
+        'activity_value': str(activity.activity_value),
+        'emission_factor': str(activity.emission_factor),
+        'co2e': str(activity.co2e),
+        'facility_code': activity.facility_code,
+        'notes': activity.notes,
+    }
 
 
 @api_view(['GET'])
@@ -53,22 +59,12 @@ def activity_edit(request, activity_id):
     serializer = ActivityEditSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
 
-    # Capture before state
-    before = {
-        'activity_value': str(activity.activity_value),
-        'emission_factor': str(activity.emission_factor),
-        'co2e': str(activity.co2e),
-        'facility_code': activity.facility_code,
-        'notes': activity.notes,
-    }
-
-    # Apply changes
+    before = _snapshot(activity)
     data = serializer.validated_data
     for field in ['activity_value', 'emission_factor', 'period_start', 'period_end', 'facility_code', 'notes']:
         if field in data:
             setattr(activity, field, data[field])
 
-    # Recalculate CO2e if value or factor changed
     if 'activity_value' in data or 'emission_factor' in data:
         activity.compute_co2e()
 
@@ -77,22 +73,11 @@ def activity_edit(request, activity_id):
     activity.updated_by = request.user
     activity.save()
 
-    # Capture after state
-    after = {
-        'activity_value': str(activity.activity_value),
-        'emission_factor': str(activity.emission_factor),
-        'co2e': str(activity.co2e),
-        'facility_code': activity.facility_code,
-        'notes': activity.notes,
-    }
-
-    # Audit log
-    audit = AuditService(request.user.tenant)
-    audit.log_edit(
+    AuditService(request.user.tenant).log_edit(
         activity=activity,
         actor=request.user,
         before_data=before,
-        after_data=after,
+        after_data=_snapshot(activity),
         reason=data.get('edit_reason', ''),
         ip_address=getattr(request, 'ip_address', None),
         user_agent=getattr(request, 'user_agent', ''),
@@ -114,14 +99,11 @@ def activity_lock(request, activity_id):
     except NormalizedActivity.DoesNotExist:
         return Response({'error': 'Activity not found or not approved'}, status=404)
 
-    if not request.user.can_approve:
+    if not request.user.can_review:
         return Response({'error': 'Permission denied'}, status=403)
 
     activity.lock_for_audit()
-
-    # Audit log
-    audit = AuditService(request.user.tenant)
-    audit.log_lock(
+    AuditService(request.user.tenant).log_lock(
         activity=activity,
         actor=request.user,
         ip_address=getattr(request, 'ip_address', None),

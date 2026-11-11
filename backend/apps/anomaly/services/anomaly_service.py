@@ -9,6 +9,7 @@ from decimal import Decimal
 
 from django.db.models import Avg
 
+from apps.audit.models import AuditLog
 from apps.audit.services.audit_service import AuditService
 from apps.normalization.models import NormalizedActivity
 
@@ -29,9 +30,7 @@ class AnomalyService:
     7. Missing derived distances
     """
 
-    # Thresholds
-    ELECTRICITY_SPIKE_PCT = Decimal('300')  # Flag if >300% of avg
-    MIN_HISTORY_MONTHS = 3  # Need 3 months of history
+    ELECTRICITY_SPIKE_PCT = Decimal('300')  # flag above 300% of the meter's approved history
 
     def __init__(self, tenant):
         self.tenant = tenant
@@ -61,16 +60,12 @@ class AnomalyService:
 
     def _create_flag(self, activity, anomaly_type, description, confidence, details=None):
         """Create an anomaly flag if one doesn't already exist."""
-        existing = AnomalyFlag.objects.filter(
-            activity=activity,
-            anomaly_type=anomaly_type,
-            status=AnomalyFlag.STATUS_OPEN,
-        ).exists()
-
-        if existing:
+        if AnomalyFlag.objects.filter(
+            activity=activity, anomaly_type=anomaly_type, status=AnomalyFlag.STATUS_OPEN,
+        ).exists():
             return
 
-        flag = AnomalyFlag(
+        AnomalyFlag.objects.create(
             tenant=self.tenant,
             activity=activity,
             anomaly_type=anomaly_type,
@@ -78,10 +73,8 @@ class AnomalyService:
             confidence=confidence,
             details=details or {},
         )
-        flag.save()
         self.flags_created += 1
 
-        # Flag the activity
         if activity.status == NormalizedActivity.STATUS_PENDING_REVIEW:
             activity.status = NormalizedActivity.STATUS_FLAGGED
             activity.save(update_fields=['status'])
@@ -160,12 +153,9 @@ class AnomalyService:
 
     def _detect_duplicate(self, activity):
         """Detect potential duplicate records."""
-        # Check for same source record hash within time window
-        source_hash = activity.source_record.row_hash
-
         duplicate = NormalizedActivity.objects.filter(
             tenant=self.tenant,
-            source_record__row_hash=source_hash,
+            source_record__row_hash=activity.source_record.row_hash,
         ).exclude(id=activity.id).first()
 
         if duplicate:
@@ -230,18 +220,15 @@ class AnomalyService:
             )
 
     def resolve_flag(self, flag, user, status, note=''):
-        """Resolve an anomaly flag."""
-
+        """Close a flag (audited); the activity returns to review once no open flags remain."""
         flag.status = status
         flag.resolved_by = user
         flag.resolution_note = note
         flag.resolved_at = datetime.now(UTC)
         flag.save()
 
-        # Audit log
-        audit = AuditService(self.tenant)
-        audit.log(
-            action='ANOMALY_CLEAR' if status == AnomalyFlag.STATUS_RESOLVED else 'ANOMALY_CLEAR',
+        AuditService(self.tenant).log(
+            action=AuditLog.ACTION_ANOMALY_CLEAR,
             entity_type='AnomalyFlag',
             entity_id=flag.id,
             actor=user,
@@ -249,7 +236,6 @@ class AnomalyService:
             after={'status': status, 'note': note},
         )
 
-        # If all flags on activity are resolved, revert status
         if status in [AnomalyFlag.STATUS_RESOLVED, AnomalyFlag.STATUS_IGNORED]:
             remaining = AnomalyFlag.objects.filter(
                 activity=flag.activity,

@@ -6,6 +6,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from .models import AuditLog
 from .serializers import AuditLogSerializer
 from .services.audit_service import AuditService
 
@@ -20,17 +21,14 @@ class AuditPagination(PageNumberPagination):
 @permission_classes([IsAuthenticated])
 def audit_timeline(request):
     """Get audit timeline for tenant."""
-    from .models import AuditLog
     logs = AuditLog.objects.filter(
         tenant=request.user.tenant
     ).order_by('-timestamp')
 
-    # Filter by entity type if provided
     entity_type = request.query_params.get('entity_type')
     if entity_type:
         logs = logs.filter(entity_type=entity_type)
 
-    # Filter by action if provided
     action = request.query_params.get('action')
     if action:
         logs = logs.filter(action=action)

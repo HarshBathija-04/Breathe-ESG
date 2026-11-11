@@ -7,7 +7,6 @@ import {
   CheckCircle2,
   ChevronDown,
   Edit3,
-  Loader2,
   Lock,
   ShieldCheck,
   TriangleAlert,
@@ -15,8 +14,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { auditApi, type AuditLogEntry } from '@/api/audit';
-import { EmptyState, ErrorState, PageHeader } from '@/components/common';
-import { Button } from '@/components/ui/button';
+import { EmptyState, ErrorState, LoadMore, PageHeader } from '@/components/common';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatDateTime, humanize } from '@/lib/format';
@@ -147,7 +145,7 @@ export default function AuditPage() {
             id="action-filter"
             value={action}
             onChange={(e) => setAction(e.target.value)}
-            className="h-10 rounded-md border border-input bg-card px-3 text-sm"
+            className="h-10 rounded-md border border-input bg-card px-3 text-sm transition-colors duration-150 hover:border-primary/60"
           >
             {FILTERS.map((f) => (
               <option key={f} value={f}>
@@ -157,7 +155,7 @@ export default function AuditPage() {
           </select>
         </div>
         <p className="tabular text-sm text-muted-foreground" aria-live="polite">
-          {logs ? `${count} entries` : ''}
+          {logs ? `${count.toLocaleString()} entr${count === 1 ? 'y' : 'ies'}` : ''}
         </p>
       </div>
 
@@ -173,8 +171,8 @@ export default function AuditPage() {
         ) : logs.length === 0 ? (
           <EmptyState
             icon={ShieldCheck}
-            title="No audit entries"
-            description="Nothing has been recorded for this filter yet."
+            title={action ? `No ${humanize(action).toLowerCase()} entries yet` : 'No audit entries yet'}
+            description="Entries appear here as soon as someone uploads, reviews, edits or locks a record."
           />
         ) : (
           <>
@@ -183,14 +181,12 @@ export default function AuditPage() {
                 <Entry key={log.id} log={log} />
               ))}
             </ul>
-            {logs.length < count && (
-              <div className="border-t p-3 text-center">
-                <Button variant="ghost" onClick={() => load(page + 1, action)} disabled={loadingMore}>
-                  {loadingMore && <Loader2 className="animate-spin" aria-hidden="true" />}
-                  Load more ({count - logs.length} remaining)
-                </Button>
-              </div>
-            )}
+            <LoadMore
+              loaded={logs.length}
+              total={count}
+              loading={loadingMore}
+              onClick={() => load(page + 1, action)}
+            />
           </>
         )}
       </Card>

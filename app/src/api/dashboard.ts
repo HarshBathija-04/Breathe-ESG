@@ -1,6 +1,3 @@
-/*
-Dashboard + AI insights API endpoints.
-*/
 import apiClient from './client';
 
 export type ScopeKey = 'Scope1' | 'Scope2' | 'Scope3';

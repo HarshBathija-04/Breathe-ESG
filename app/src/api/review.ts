@@ -1,8 +1,5 @@
-/*
-
-Review API endpoints.
-*/
 import apiClient from './client';
+import type { Paginated } from './ingestion';
 
 export interface NormalizedActivity {
   id: string;
@@ -42,32 +39,10 @@ export interface ReviewDecision {
 }
 
 export const reviewApi = {
-  getPending: async (params?: {
-    status?: string;
-    page?: number;
-  }): Promise<{ count: number; results: NormalizedActivity[] }> => {
-    const response = await apiClient.get('/review/pending/', { params });
-    return response.data;
-  },
-
-  submitDecision: async (activityId: string, decision: string, reason?: string) => {
-    const response = await apiClient.post(`/review/${activityId}/action/`, {
-      decision,
-      reason,
-    });
-    return response.data;
-  },
-
-  bulkApprove: async (activityIds: string[], reason?: string) => {
-    const response = await apiClient.post('/review/bulk-approve/', {
-      activity_ids: activityIds,
-      reason,
-    });
-    return response.data;
-  },
-
-  getHistory: async (activityId: string) => {
-    const response = await apiClient.get(`/review/${activityId}/history/`);
-    return response.data;
-  },
+  getPending: async (params?: { status?: string; page?: number }): Promise<Paginated<NormalizedActivity>> =>
+    (await apiClient.get('/review/pending/', { params })).data,
+  submitDecision: async (activityId: string, decision: string, reason?: string) =>
+    (await apiClient.post(`/review/${activityId}/action/`, { decision, reason })).data,
+  getHistory: async (activityId: string): Promise<{ decisions: ReviewDecision[] }> =>
+    (await apiClient.get(`/review/${activityId}/history/`)).data,
 };

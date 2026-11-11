@@ -82,7 +82,7 @@ function UploadZone({
         htmlFor={inputId}
         onDragOver={(e) => {
           e.preventDefault();
-          setDragging(true);
+          if (!disabled) setDragging(true);
         }}
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
@@ -91,7 +91,7 @@ function UploadZone({
           dragging
             ? 'border-primary bg-accent/60'
             : 'border-input hover:border-primary/60 hover:bg-secondary/60',
-          disabled && 'cursor-not-allowed opacity-60',
+          disabled && 'pointer-events-none opacity-60',
         )}
       >
         {busy ? (
@@ -100,9 +100,11 @@ function UploadZone({
           <FileUp className="size-5 text-muted-foreground" aria-hidden="true" />
         )}
         <span className="text-sm font-medium text-ink">
-          {busy ? 'Processing file' : 'Choose a CSV or drop it here'}
+          {busy ? 'Parsing, normalizing and screening' : 'Choose a CSV or drop it here'}
         </span>
-        <span className="text-xs text-muted-foreground">Up to 5 MB</span>
+        <span className="text-xs text-muted-foreground">
+          {busy ? 'Large files can take a few seconds' : '.csv up to 5 MB'}
+        </span>
         <input
           id={inputId}
           type="file"
@@ -280,7 +282,7 @@ export default function IngestionPage() {
           <EmptyState
             icon={FileUp}
             title="No uploads yet"
-            description="Start with one of the sample files above."
+            description="Download a sample file above, then drop it back into the matching card to watch the pipeline run."
           />
         ) : (
           <ul className="divide-y border-t">

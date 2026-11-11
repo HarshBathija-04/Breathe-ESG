@@ -71,7 +71,6 @@ function ChartTooltip({
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [error, setError] = useState('');
-
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -126,9 +125,12 @@ export default function DashboardPage() {
         title="Dashboard"
         description="Reportable emissions exclude flagged and rejected records until they are resolved."
         actions={
-          <Button asChild variant="outline">
+          <Button asChild variant={a.pending_review + a.flagged > 0 ? 'default' : 'outline'}>
             <Link to="/app/review">
-              Review queue <ArrowRight aria-hidden="true" />
+              {a.pending_review + a.flagged > 0
+                ? `Review ${(a.pending_review + a.flagged).toLocaleString()} open records`
+                : 'Review queue'}
+              <ArrowRight aria-hidden="true" />
             </Link>
           </Button>
         }
@@ -260,11 +262,15 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between px-5 py-4">
             <h2 className="font-medium text-ink">Recent ingestion jobs</h2>
             <Link to="/app/ingestion" className="rounded text-sm font-medium text-primary hover:underline">
-              Upload
+              View all
             </Link>
           </div>
           {stats.recent_jobs.length === 0 ? (
-            <EmptyState icon={Upload} title="No uploads yet" />
+            <EmptyState
+              icon={Upload}
+              title="No uploads yet"
+              description="Upload an SAP, utility or travel CSV to start the pipeline."
+            />
           ) : (
             <ul className="divide-y border-t">
               {stats.recent_jobs.map((job) => (
@@ -291,7 +297,8 @@ export default function DashboardPage() {
           </p>
           <Button asChild variant="outline" className="mt-auto w-fit">
             <Link to="/app/anomalies">
-              Investigate <ArrowRight aria-hidden="true" />
+              {stats.anomalies.open ? 'Investigate anomalies' : 'View resolved'}{' '}
+              <ArrowRight aria-hidden="true" />
             </Link>
           </Button>
         </Card>

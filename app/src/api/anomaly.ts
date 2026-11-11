@@ -1,6 +1,3 @@
-/*
-Anomaly API endpoints.
-*/
 import apiClient from './client';
 import type { Paginated } from './ingestion';
 

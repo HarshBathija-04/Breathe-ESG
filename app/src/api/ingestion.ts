@@ -1,6 +1,3 @@
-/*
-Ingestion API endpoints.
-*/
 import apiClient from './client';
 
 export type SourceKind = 'sap' | 'utility' | 'travel';

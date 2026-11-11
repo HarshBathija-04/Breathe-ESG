@@ -87,10 +87,10 @@ export function LoginPage() {
           </Link>
           <h1 className="font-display text-2xl font-semibold tracking-tight text-ink">Sign in</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Use a demo account below or your own credentials.
+            Pick a demo role below for one-click access, or use your own credentials.
           </p>
 
-          <form onSubmit={handleSubmit} className="mt-8 space-y-4" noValidate={false}>
+          <form onSubmit={handleSubmit} className="mt-8 space-y-4">
             {error && (
               <div
                 role="alert"

@@ -5,7 +5,15 @@ import { useCallback, useEffect, useState } from 'react';
 import { CheckCircle2, Loader2, ScanSearch } from 'lucide-react';
 import { toast } from 'sonner';
 import { anomalyApi, type AnomalyFlag, type AnomalyStats } from '@/api/anomaly';
-import { EmptyState, ErrorState, PageHeader, ScopeBadge, StatusBadge } from '@/components/common';
+import {
+  EmptyState,
+  ErrorState,
+  LoadMore,
+  PageHeader,
+  RoleNotice,
+  ScopeBadge,
+  StatusBadge,
+} from '@/components/common';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import {
@@ -24,6 +32,12 @@ import { formatCO2e, formatDate, humanize } from '@/lib/format';
 import { messageFromError } from '@/lib/http';
 
 const STATUS_FILTERS = ['OPEN', 'RESOLVED', 'CONFIRMED', 'IGNORED'];
+const EMPTY_HINTS: Record<string, string> = {
+  OPEN: 'Every flag has been handled. New uploads are screened automatically.',
+  RESOLVED: 'Flags a reviewer marks as resolved show up here with their note.',
+  CONFIRMED: 'Confirmed issues stay out of reportable totals and are listed here.',
+  IGNORED: 'Flags dismissed as not relevant are kept here for the audit trail.',
+};
 const RESOLUTIONS = [
   {
     value: 'RESOLVED',
@@ -43,6 +57,8 @@ export default function AnomaliesPage() {
   const [status, setStatus] = useState('OPEN');
   const [flags, setFlags] = useState<AnomalyFlag[] | null>(null);
   const [count, setCount] = useState(0);
+  const [page, setPage] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [stats, setStats] = useState<AnomalyStats | null>(null);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<AnomalyFlag | null>(null);
@@ -56,6 +72,7 @@ export default function AnomaliesPage() {
       const [list, s] = await Promise.all([anomalyApi.list({ status: filter }), anomalyApi.getStats()]);
       setFlags(list.results);
       setCount(list.count);
+      setPage(1);
       setStats(s);
     } catch (err) {
       setError(messageFromError(err, 'Anomalies could not be loaded.'));
@@ -66,6 +83,20 @@ export default function AnomaliesPage() {
     setFlags(null);
     load(status);
   }, [load, status]);
+
+  const loadMore = async () => {
+    setLoadingMore(true);
+    try {
+      const list = await anomalyApi.list({ status, page: page + 1 });
+      setFlags((prev) => [...(prev ?? []), ...list.results]);
+      setCount(list.count);
+      setPage(page + 1);
+    } catch (err) {
+      toast.error(messageFromError(err, 'More anomalies could not be loaded.'));
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const resolve = async () => {
     if (!selected) return;
@@ -98,6 +129,12 @@ export default function AnomaliesPage() {
         title="Anomalies"
         description="Flagged records are excluded from reportable totals until a reviewer resolves them."
       />
+
+      {!user?.can_review && (
+        <RoleNotice>
+          Only reviewers and admins can resolve anomalies. Sign in as the Reviewer demo account to try it.
+        </RoleNotice>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="gap-4 self-start px-5 lg:sticky lg:top-6 lg:col-span-1">
@@ -157,11 +194,7 @@ export default function AnomaliesPage() {
                 title={
                   status === 'OPEN' ? 'No open anomalies' : `No ${humanize(status).toLowerCase()} anomalies`
                 }
-                description={
-                  status === 'OPEN'
-                    ? 'Every flag has been handled. New uploads are screened automatically.'
-                    : undefined
-                }
+                description={EMPTY_HINTS[status]}
               />
             ) : (
               <ul className="divide-y">
@@ -194,9 +227,7 @@ export default function AnomaliesPage() {
                         size="sm"
                         className="self-start"
                         disabled={!user?.can_review}
-                        title={
-                          user?.can_review ? undefined : 'Only reviewers and admins can resolve anomalies'
-                        }
+                        aria-label={`Resolve ${humanize(f.anomaly_type).toLowerCase()} anomaly`}
                         onClick={() => {
                           setSelected(f);
                           setResolution('RESOLVED');
@@ -209,10 +240,8 @@ export default function AnomaliesPage() {
                 ))}
               </ul>
             )}
-            {flags && flags.length < count && (
-              <p className="border-t px-5 py-3 text-center text-xs text-muted-foreground">
-                Showing the first {flags.length} of {count}.
-              </p>
+            {flags && (
+              <LoadMore loaded={flags.length} total={count} loading={loadingMore} onClick={loadMore} />
             )}
           </Card>
         </div>
@@ -229,7 +258,7 @@ export default function AnomaliesPage() {
             {RESOLUTIONS.map((r) => (
               <label
                 key={r.value}
-                className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 has-[:checked]:border-primary has-[:checked]:bg-accent/50"
+                className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors duration-150 hover:bg-secondary/60 has-[:checked]:border-primary has-[:checked]:bg-accent/50"
               >
                 <input
                   type="radio"
@@ -247,7 +276,7 @@ export default function AnomaliesPage() {
             ))}
           </fieldset>
           <div className="space-y-1.5">
-            <Label htmlFor="resolution-note">Note</Label>
+            <Label htmlFor="resolution-note">Note (optional, stored in the audit log)</Label>
             <Textarea
               id="resolution-note"
               value={note}
@@ -262,7 +291,7 @@ export default function AnomaliesPage() {
             </Button>
             <Button onClick={resolve} disabled={submitting}>
               {submitting && <Loader2 className="animate-spin" aria-hidden="true" />}
-              Save
+              Save outcome
             </Button>
           </DialogFooter>
         </DialogContent>

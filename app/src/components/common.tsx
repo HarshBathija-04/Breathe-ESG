@@ -3,7 +3,7 @@ Shared presentational building blocks: brand mark, page header, status and
 scope badges, and the empty / error states every data view uses.
 */
 import type { ReactNode } from 'react';
-import { AlertTriangle, RefreshCw, type LucideIcon } from 'lucide-react';
+import { AlertTriangle, Info, Loader2, RefreshCw, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { humanize, scopeLabel } from '@/lib/format';
@@ -125,13 +125,46 @@ export function EmptyState({
   );
 }
 
+/** Footer button for lists that page through the API. Renders nothing once everything is loaded. */
+export function LoadMore({
+  loaded,
+  total,
+  loading,
+  onClick,
+}: {
+  loaded: number;
+  total: number;
+  loading: boolean;
+  onClick: () => void;
+}) {
+  if (loaded >= total) return null;
+  return (
+    <div className="border-t p-3 text-center">
+      <Button variant="ghost" onClick={onClick} disabled={loading}>
+        {loading && <Loader2 className="animate-spin" aria-hidden="true" />}
+        {loading ? 'Loading' : `Load more (${(total - loaded).toLocaleString()} remaining)`}
+      </Button>
+    </div>
+  );
+}
+
+/** Explains why controls are disabled for the current role. */
+export function RoleNotice({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-info/20 bg-info-soft px-4 py-3 text-sm text-info">
+      <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+      <p>{children}</p>
+    </div>
+  );
+}
+
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
     <div role="alert" className="flex flex-col items-center px-6 py-12 text-center">
       <div className="mb-4 flex size-12 items-center justify-center rounded-full bg-danger-soft text-destructive">
         <AlertTriangle className="size-5" aria-hidden="true" />
       </div>
-      <p className="font-medium text-ink">Something went wrong</p>
+      <p className="font-medium text-ink">This view could not load</p>
       <p className="mt-1 max-w-sm text-sm text-muted-foreground">{message}</p>
       {onRetry && (
         <Button variant="outline" className="mt-4" onClick={onRetry}>

@@ -2,10 +2,18 @@
 Review queue - reviewers approve or reject normalized activities before audit lock.
 */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, ClipboardCheck, Eye, Info, Loader2, Search, XCircle } from 'lucide-react';
+import { CheckCircle2, ClipboardCheck, Eye, Loader2, Search, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { reviewApi, type NormalizedActivity, type ReviewDecision } from '@/api/review';
-import { EmptyState, ErrorState, PageHeader, ScopeBadge, StatusBadge } from '@/components/common';
+import {
+  EmptyState,
+  ErrorState,
+  LoadMore,
+  PageHeader,
+  RoleNotice,
+  ScopeBadge,
+  StatusBadge,
+} from '@/components/common';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import {
@@ -147,13 +155,10 @@ export default function ReviewPage() {
       />
 
       {!user?.can_review && (
-        <div className="flex items-start gap-3 rounded-lg border bg-info-soft px-4 py-3 text-sm text-info">
-          <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-          <p>
-            Your {humanize(user?.role)} role can browse the queue but not decide. Sign in as the Reviewer demo
-            account to approve or reject.
-          </p>
-        </div>
+        <RoleNotice>
+          Your {humanize(user?.role)} role can browse the queue but not decide. Sign in as the Reviewer demo
+          account to approve or reject.
+        </RoleNotice>
       )}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -189,7 +194,7 @@ export default function ReviewPage() {
           ))}
         </div>
         <p className="tabular text-sm text-muted-foreground sm:ml-auto" aria-live="polite">
-          {items ? `${count} open record${count === 1 ? '' : 's'}` : ''}
+          {items ? `${count.toLocaleString()} open record${count === 1 ? '' : 's'}` : ''}
         </p>
       </div>
 
@@ -205,11 +210,18 @@ export default function ReviewPage() {
         ) : visible.length === 0 ? (
           <EmptyState
             icon={ClipboardCheck}
-            title={search ? 'No records match your search' : 'Queue is clear'}
+            title={search ? `Nothing matches "${search.trim()}"` : 'Queue is clear'}
             description={
               search
-                ? 'Try another term or clear the search.'
-                : 'Every record in this view has been reviewed.'
+                ? 'Search covers the records loaded so far. Try another term or load more first.'
+                : 'Every record in this view has been reviewed. New uploads land here automatically.'
+            }
+            action={
+              search ? (
+                <Button variant="outline" onClick={() => setSearch('')}>
+                  Clear search
+                </Button>
+              ) : undefined
             }
           />
         ) : (
@@ -248,7 +260,7 @@ export default function ReviewPage() {
                 </thead>
                 <tbody className="divide-y">
                   {visible.map((a) => (
-                    <tr key={a.id} className="hover:bg-secondary/40">
+                    <tr key={a.id} className="transition-colors duration-150 hover:bg-secondary/40">
                       <td className="px-4 py-2.5">
                         <span className="font-medium text-ink">{sourceLabel(a.source_type)}</span>
                         {a.facility_code && (
@@ -305,14 +317,12 @@ export default function ReviewPage() {
               ))}
             </ul>
 
-            {items.length < count && (
-              <div className="border-t p-3 text-center">
-                <Button variant="ghost" onClick={() => load(page + 1, status)} disabled={loadingMore}>
-                  {loadingMore && <Loader2 className="animate-spin" aria-hidden="true" />}
-                  Load more ({count - items.length} remaining)
-                </Button>
-              </div>
-            )}
+            <LoadMore
+              loaded={items.length}
+              total={count}
+              loading={loadingMore}
+              onClick={() => load(page + 1, status)}
+            />
           </>
         )}
       </Card>
@@ -327,7 +337,9 @@ export default function ReviewPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-1.5">
-            <Label htmlFor="decision-reason">Reason {decision?.type === 'APPROVE' && '(optional)'}</Label>
+            <Label htmlFor="decision-reason">
+              Reason {decision?.type === 'APPROVE' ? '(optional)' : '(required)'}
+            </Label>
             <Textarea
               id="decision-reason"
               value={reason}
@@ -349,7 +361,7 @@ export default function ReviewPage() {
               variant={decision?.type === 'REJECT' ? 'destructive' : 'default'}
             >
               {submitting && <Loader2 className="animate-spin" aria-hidden="true" />}
-              {decision?.type === 'APPROVE' ? 'Approve' : 'Reject'}
+              {decision?.type === 'APPROVE' ? 'Approve record' : 'Reject record'}
             </Button>
           </DialogFooter>
         </DialogContent>

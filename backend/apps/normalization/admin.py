@@ -1,5 +1,7 @@
 from django.contrib import admin
+
 from .models import NormalizedActivity
+
 
 @admin.register(NormalizedActivity)
 class NormalizedActivityAdmin(admin.ModelAdmin):

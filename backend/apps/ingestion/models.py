@@ -2,14 +2,16 @@
 Ingestion models - tracks upload jobs and stores raw, untouched source data.
 RawRecord is immutable - it stores exactly what came from the source.
 """
-from django.db import models
-import uuid
 import hashlib
 import json
+import uuid
+from datetime import UTC
 
-from apps.tenant.models import Tenant
+from django.db import models
+
 from apps.auth_core.models import User
 from apps.sources.models import SourceSystem
+from apps.tenant.models import Tenant
 
 
 class DataIngestionJob(models.Model):
@@ -94,9 +96,9 @@ class DataIngestionJob(models.Model):
 
     def add_log(self, level, message, details=None):
         """Append structured log entry."""
-        from datetime import datetime, timezone
+        from datetime import datetime
         entry = {
-            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'timestamp': datetime.now(UTC).isoformat(),
             'level': level,
             'message': message,
         }

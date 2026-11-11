@@ -4,12 +4,13 @@ Review models - tracks analyst decisions on normalized activities.
 Every approval/rejection is recorded with who made it and why.
 This feeds into the audit trail.
 """
-from django.db import models
 import uuid
 
-from apps.tenant.models import Tenant
+from django.db import models
+
 from apps.auth_core.models import User
 from apps.normalization.models import NormalizedActivity
+from apps.tenant.models import Tenant
 
 
 class ReviewDecision(models.Model):

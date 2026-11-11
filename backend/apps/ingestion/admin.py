@@ -1,5 +1,7 @@
 from django.contrib import admin
+
 from .models import DataIngestionJob, RawRecord
+
 
 @admin.register(DataIngestionJob)
 class DataIngestionJobAdmin(admin.ModelAdmin):

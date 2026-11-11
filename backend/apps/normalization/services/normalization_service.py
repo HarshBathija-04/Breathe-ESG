@@ -4,12 +4,32 @@ NormalizationService - converts RawRecords into NormalizedActivities.
 This is the core transformation logic. Each source type has different
 normalization rules but all produce the same canonical schema.
 """
-from decimal import Decimal, InvalidOperation
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 
-from apps.ingestion.models import RawRecord, DataIngestionJob
+from apps.ingestion.models import DataIngestionJob, RawRecord
 from apps.sources.models import SourceSystem
+
 from ..models import NormalizedActivity
+
+
+def normalize_number_string(val):
+    """
+    Turn '1,234.5', '1.234,5' or German '6709,84' into a plain '1234.5'-style string.
+    The separator that appears last is the decimal mark; a lone comma followed by
+    exactly three digits is treated as a thousands separator (English convention).
+    """
+    s = str(val).strip().replace(' ', '')
+    if ',' in s and '.' in s:
+        if s.rfind(',') > s.rfind('.'):
+            s = s.replace('.', '').replace(',', '.')
+        else:
+            s = s.replace(',', '')
+    elif s.count(',') == 1 and len(s.split(',')[1]) != 3:
+        s = s.replace(',', '.')
+    else:
+        s = s.replace(',', '')
+    return s
 
 
 class NormalizationService:
@@ -293,7 +313,6 @@ class NormalizationService:
             end = date(start.year, start.month + 1, 1)
             end = date(end.year, end.month, 1)
             # Go back one day
-            from datetime import timedelta
             end = date(start.year, start.month + 1, 1) if start.month < 12 else date(start.year + 1, 1, 1)
             end = end - __import__('datetime').timedelta(days=1)
 
@@ -310,7 +329,6 @@ class NormalizationService:
 
     def _parse_date(self, date_str):
         """Parse date string to date object."""
-        from datetime import date
 
         if isinstance(date_str, str) and date_str:
             try:
@@ -324,7 +342,7 @@ class NormalizationService:
         """Safely parse decimal value."""
         if val is None:
             return default
-        val_str = str(val).strip().replace(',', '')
+        val_str = normalize_number_string(val)
         if not val_str:
             return default
         try:

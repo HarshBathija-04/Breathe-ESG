@@ -4,13 +4,14 @@ AnomalyService - detects suspicious patterns in normalized data.
 Runs after normalization. Flags records for analyst review.
 Does not block processing - flags are informational.
 """
-from datetime import datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
-from django.db.models import Avg, StdDev
 
-from apps.normalization.models import NormalizedActivity
-from apps.ingestion.models import RawRecord
+from django.db.models import Avg
+
 from apps.audit.services.audit_service import AuditService
+from apps.normalization.models import NormalizedActivity
+
 from ..models import AnomalyFlag
 
 
@@ -203,6 +204,17 @@ class AnomalyService:
                     {'value': float(value)}
                 )
 
+        elif activity.category == NormalizedActivity.CATEGORY_TRAVEL:
+            # A single trip longer than one lap of the Earth (~40,000 km) is not plausible
+            if activity.normalized_unit == 'km' and value > Decimal('40000'):
+                self._create_flag(
+                    activity,
+                    AnomalyFlag.TYPE_OUT_OF_RANGE,
+                    f'Trip distance {value} km exceeds the circumference of the Earth',
+                    Decimal('0.95'),
+                    {'value': float(value)}
+                )
+
     def _detect_missing_distance(self, activity):
         """Detect travel records with missing/derived distance."""
         if activity.category != NormalizedActivity.CATEGORY_TRAVEL:
@@ -219,12 +231,11 @@ class AnomalyService:
 
     def resolve_flag(self, flag, user, status, note=''):
         """Resolve an anomaly flag."""
-        from datetime import timezone
 
         flag.status = status
         flag.resolved_by = user
         flag.resolution_note = note
-        flag.resolved_at = datetime.now(timezone.utc)
+        flag.resolved_at = datetime.now(UTC)
         flag.save()
 
         # Audit log

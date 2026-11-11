@@ -11,11 +11,12 @@ Every significant action in the system is logged here:
 The audit log is append-only. No updates, no deletes.
 This is critical for compliance.
 """
-from django.db import models
 import uuid
 
-from apps.tenant.models import Tenant
+from django.db import models
+
 from apps.auth_core.models import User
+from apps.tenant.models import Tenant
 
 
 class AuditLog(models.Model):

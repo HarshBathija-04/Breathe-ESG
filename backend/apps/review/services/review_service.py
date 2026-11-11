@@ -6,8 +6,9 @@ Enforces:
 - Audit trail on every decision
 - Immutable decisions (no changing after fact)
 """
-from apps.normalization.models import NormalizedActivity
 from apps.audit.services.audit_service import AuditService
+from apps.normalization.models import NormalizedActivity
+
 from ..models import ReviewDecision
 
 

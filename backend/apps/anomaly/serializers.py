@@ -2,6 +2,7 @@
 Anomaly serializers.
 """
 from rest_framework import serializers
+
 from .models import AnomalyFlag
 
 
@@ -17,7 +18,6 @@ class AnomalyFlagSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'resolved_by']
 
     def get_activity_details(self, obj):
-        from apps.normalization.serializers import NormalizedActivitySerializer
         return {
             'id': str(obj.activity.id),
             'category': obj.activity.category,
@@ -36,4 +36,4 @@ class AnomalyResolutionSerializer(serializers.Serializer):
         AnomalyFlag.STATUS_CONFIRMED,
         AnomalyFlag.STATUS_IGNORED,
     ])
-    note = serializers.CharField(required=False, allow_blank=True)
+    note = serializers.CharField(required=False, allow_blank=True, max_length=2000)

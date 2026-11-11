@@ -2,6 +2,7 @@
 Normalization serializers.
 """
 from rest_framework import serializers
+
 from .models import NormalizedActivity
 
 
@@ -39,6 +40,6 @@ class ActivityEditSerializer(serializers.Serializer):
     emission_factor = serializers.DecimalField(max_digits=20, decimal_places=10, required=False)
     period_start = serializers.DateField(required=False)
     period_end = serializers.DateField(required=False)
-    facility_code = serializers.CharField(required=False, allow_blank=True)
-    notes = serializers.CharField(required=False, allow_blank=True)
-    edit_reason = serializers.CharField(required=True)
+    facility_code = serializers.CharField(required=False, allow_blank=True, max_length=50)
+    notes = serializers.CharField(required=False, allow_blank=True, max_length=2000)
+    edit_reason = serializers.CharField(required=True, max_length=1000)

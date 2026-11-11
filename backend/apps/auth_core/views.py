@@ -1,45 +1,34 @@
 """
-Auth views - login, register, me.
+Auth views - login, me, tenant users.
+
+Self-service registration was removed: it let anonymous callers pick their own
+role and tenant. Users are provisioned by the seed command or Django admin.
 """
-from django.contrib.auth import authenticate
-from rest_framework import generics, status
-from rest_framework.decorators import api_view, permission_classes
+from django.contrib.auth import get_user_model
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from django.contrib.auth import get_user_model
+
+from esg_platform.throttles import AuthThrottle
 
 from .authentication import generate_token
-from .serializers import LoginSerializer, UserSerializer, UserCreateSerializer
+from .serializers import LoginSerializer, UserSerializer
 
 User = get_user_model()
 
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([AuthThrottle])
 def login_view(request):
     """Login with email/password, return JWT token."""
     serializer = LoginSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     user = serializer.validated_data['user']
-    token = generate_token(user)
     return Response({
-        'access': token,
+        'access': generate_token(user),
         'user': UserSerializer(user).data,
     })
-
-
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def register_view(request):
-    """Register a new user (for demo/seeding purposes)."""
-    serializer = UserCreateSerializer(data=request.data)
-    serializer.is_valid(raise_exception=True)
-    user = serializer.save()
-    token = generate_token(user)
-    return Response({
-        'access': token,
-        'user': UserSerializer(user).data,
-    }, status=status.HTTP_201_CREATED)
 
 
 @api_view(['GET'])
@@ -54,5 +43,4 @@ def me_view(request):
 def tenant_users_view(request):
     """List users in current tenant."""
     users = User.objects.filter(tenant=request.user.tenant)
-    serializer = UserSerializer(users, many=True)
-    return Response(serializer.data)
+    return Response(UserSerializer(users, many=True).data)

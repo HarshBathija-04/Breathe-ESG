@@ -8,13 +8,14 @@ Status lifecycle:
   OPEN → RESOLVED (analyst confirmed it's fine or fixed it)
   OPEN → CONFIRMED (analyst confirmed it's a real issue)
 """
-from django.db import models
 import uuid
 from decimal import Decimal
 
-from apps.tenant.models import Tenant
+from django.db import models
+
 from apps.auth_core.models import User
 from apps.normalization.models import NormalizedActivity
+from apps.tenant.models import Tenant
 
 
 class AnomalyFlag(models.Model):
@@ -106,6 +107,3 @@ class AnomalyFlag(models.Model):
     def __str__(self):
         return f"{self.anomaly_type} on {self.activity_id} ({self.status})"
 
-
-# Need Decimal import
-from decimal import Decimal

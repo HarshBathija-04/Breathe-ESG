@@ -3,8 +3,9 @@ Tenant model - foundation of multi-tenant architecture.
 Every record in the system is scoped to a tenant.
 This isolates client data at the application layer.
 """
-from django.db import models
 import uuid
+
+from django.db import models
 
 
 class Tenant(models.Model):

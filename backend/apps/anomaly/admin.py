@@ -1,5 +1,7 @@
 from django.contrib import admin
+
 from .models import AnomalyFlag
+
 
 @admin.register(AnomalyFlag)
 class AnomalyFlagAdmin(admin.ModelAdmin):

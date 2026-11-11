@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Render build script
-# Runs during each deploy to install deps, collect static, migrate, and seed.
-set -o errexit
+# Render build: install, collect static, migrate (creates the DB_SCHEMA schema), seed demo data.
+set -o errexit -o nounset -o pipefail
 
+pip install --upgrade pip
 pip install -r requirements.txt
 
 python manage.py collectstatic --noinput

@@ -51,8 +51,16 @@ class BaseParserService(ABC):
         if text.startswith('\ufeff'):
             text = text[1:]
 
-        reader = csv.DictReader(io.StringIO(text))
-        return list(reader)
+        # Sniff the delimiter: German SAP exports are semicolon-separated.
+        first_line = text.split('\n', 1)[0]
+        try:
+            delimiter = csv.Sniffer().sniff(first_line, delimiters=',;\t|').delimiter
+        except csv.Error:
+            delimiter = ','
+
+        reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
+        # Drop overflow columns (DictReader keys them under None) so header handling stays simple.
+        return [{k: v for k, v in row.items() if k is not None} for row in reader]
 
     def create_raw_record(self, payload, row_number, parse_status='SUCCESS', parse_error=''):
         """Helper: create a RawRecord from parsed payload."""

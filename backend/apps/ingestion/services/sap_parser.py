@@ -10,8 +10,8 @@ SAP exports are notoriously inconsistent:
 
 This parser handles the most common flat-file CSV export format.
 """
-import re
 from datetime import datetime
+
 from .base_parser import BaseParserService
 
 

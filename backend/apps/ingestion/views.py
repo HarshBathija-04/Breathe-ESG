@@ -8,24 +8,30 @@ Handles file uploads for all three source types:
 
 Orchestrates the pipeline: upload -> parse -> normalize -> detect anomalies.
 """
+import logging
 import os
+import uuid
+
+from django.conf import settings
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from django.shortcuts import get_object_or_404
 
-from apps.tenant.models import Tenant
-from apps.sources.models import SourceSystem
-from apps.normalization.services.normalization_service import NormalizationService
 from apps.anomaly.services.anomaly_service import AnomalyService
 from apps.audit.services.audit_service import AuditService
+from apps.normalization.services.normalization_service import NormalizationService
+from apps.sources.models import SourceSystem
+from esg_platform.throttles import UploadThrottle
 
 from .models import DataIngestionJob
 from .serializers import IngestionJobSerializer
 from .services.sap_parser import SAPParserService
-from .services.utility_parser import UtilityParserService
 from .services.travel_parser import TravelParserService
+from .services.utility_parser import UtilityParserService
+
+logger = logging.getLogger(__name__)
 
 
 def _get_or_create_source(tenant, source_type, name):
@@ -83,6 +89,7 @@ def _run_pipeline(job, parser_service_class):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@throttle_classes([UploadThrottle])
 def ingest_sap(request):
     """
     Upload and ingest SAP fuel/procurement CSV.
@@ -96,6 +103,7 @@ def ingest_sap(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@throttle_classes([UploadThrottle])
 def ingest_utility(request):
     """
     Upload and ingest utility electricity CSV.
@@ -109,6 +117,7 @@ def ingest_utility(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@throttle_classes([UploadThrottle])
 def ingest_travel(request):
     """
     Upload and ingest travel platform CSV.
@@ -127,7 +136,6 @@ def _handle_upload(request, source_type, parser_class):
         return Response({'error': 'No file provided'}, status=400)
 
     # Check file size
-    from django.conf import settings
     max_size = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
     if file_obj.size > max_size:
         return Response(
@@ -143,6 +151,10 @@ def _handle_upload(request, source_type, parser_class):
     # Get or create source system
     source_id = request.data.get('source_system_id')
     if source_id:
+        try:
+            source_id = uuid.UUID(str(source_id))
+        except ValueError:
+            return Response({'error': 'source_system_id must be a UUID', 'code': 'validation_error'}, status=400)
         try:
             source = SourceSystem.objects.get(
                 id=source_id,
@@ -181,11 +193,13 @@ def _handle_upload(request, source_type, parser_class):
         return Response(IngestionJobSerializer(job).data)
 
     except Exception as e:
+        logger.exception('Ingestion pipeline failed for job %s', job.id)
         job.status = DataIngestionJob.STATUS_FAILED
-        job.add_log('ERROR', f'Pipeline failed: {str(e)}')
+        job.add_log('ERROR', f'Pipeline failed: {e}')
         job.save()
         return Response(
-            {'error': f'Pipeline failed: {str(e)}'},
+            {'error': 'The file could not be processed. Check the job logs for details.',
+             'code': 'pipeline_failed', 'job_id': str(job.id)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
@@ -223,7 +237,6 @@ def job_list(request):
     if source_type:
         jobs = jobs.filter(source_system__source_type=source_type)
 
-    from rest_framework.pagination import PageNumberPagination
     paginator = PageNumberPagination()
     page = paginator.paginate_queryset(jobs, request)
     serializer = IngestionJobSerializer(page, many=True)

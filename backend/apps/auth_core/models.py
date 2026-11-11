@@ -2,9 +2,10 @@
 Custom User model with tenant scoping.
 Every user belongs to exactly one tenant (for this prototype).
 """
+import uuid
+
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
-import uuid
 
 from apps.tenant.models import Tenant
 
@@ -14,7 +15,7 @@ class UserManager(BaseUserManager):
         if not email:
             raise ValueError('The Email field must be set')
         email = self.normalize_email(email)
-        
+
         # Ensure a tenant exists or is assigned if not provided
         if 'tenant' not in extra_fields:
             tenant = Tenant.objects.first()

@@ -3,16 +3,14 @@ Review API views.
 """
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.pagination import PageNumberPagination
-from django.shortcuts import get_object_or_404
 
-from apps.normalization.models import NormalizedActivity
 from apps.normalization.serializers import NormalizedActivitySerializer
+
+from .serializers import BulkApproveSerializer, ReviewActionSerializer, ReviewDecisionSerializer
 from .services.review_service import ReviewService
-from .serializers import ReviewDecisionSerializer, ReviewActionSerializer
-from .models import ReviewDecision
 
 
 class ReviewPagination(PageNumberPagination):
@@ -43,6 +41,9 @@ def pending_review(request):
 @permission_classes([IsAuthenticated])
 def review_action(request, activity_id):
     """Submit approve/reject for an activity."""
+    if not request.user.can_review:
+        return Response({'error': 'Your role cannot review activities.', 'code': 'permission_denied'},
+                        status=status.HTTP_403_FORBIDDEN)
     serializer = ReviewActionSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
 
@@ -63,11 +64,15 @@ def review_action(request, activity_id):
 @permission_classes([IsAuthenticated])
 def bulk_approve(request):
     """Bulk approve activities."""
-    activity_ids = request.data.get('activity_ids', [])
-    reason = request.data.get('reason', '')
+    if not request.user.can_review:
+        return Response({'error': 'Your role cannot review activities.', 'code': 'permission_denied'},
+                        status=status.HTTP_403_FORBIDDEN)
+    serializer = BulkApproveSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
 
     service = ReviewService(request.user.tenant)
-    results = service.bulk_approve(activity_ids, request.user, reason)
+    results = service.bulk_approve(
+        serializer.validated_data['activity_ids'], request.user, serializer.validated_data.get('reason', ''))
     return Response({'results': results})
 
 

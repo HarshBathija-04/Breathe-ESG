@@ -2,8 +2,9 @@
 SourceSystem - represents external data sources that feed into the platform.
 Each source type has its own ingestion logic and parser.
 """
-from django.db import models
 import uuid
+
+from django.db import models
 
 from apps.tenant.models import Tenant
 

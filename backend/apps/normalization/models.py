@@ -11,12 +11,13 @@ Status lifecycle:
 
 Once LOCKED, the record is immutable (for audit compliance).
 """
-from django.db import models
 import uuid
 
-from apps.tenant.models import Tenant
+from django.db import models
+
 from apps.auth_core.models import User
-from apps.ingestion.models import RawRecord, DataIngestionJob
+from apps.ingestion.models import DataIngestionJob, RawRecord
+from apps.tenant.models import Tenant
 
 
 class NormalizedActivity(models.Model):

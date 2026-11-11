@@ -13,6 +13,7 @@ Challenges:
 - Hotel emissions depend on location (country-level factors)
 """
 from datetime import datetime
+
 from .base_parser import BaseParserService
 
 

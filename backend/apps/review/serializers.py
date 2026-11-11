@@ -2,8 +2,8 @@
 Review serializers.
 """
 from rest_framework import serializers
+
 from .models import ReviewDecision
-from apps.normalization.models import NormalizedActivity
 
 
 class ReviewDecisionSerializer(serializers.ModelSerializer):
@@ -11,7 +11,7 @@ class ReviewDecisionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ReviewDecision
-        fields = ['id', 'activity', 'decision', 'reason', 'reviewed_by', 
+        fields = ['id', 'activity', 'decision', 'reason', 'reviewed_by',
                   'reviewed_by_name', 'created_at']
         read_only_fields = ['id', 'created_at', 'reviewed_by']
 
@@ -19,4 +19,9 @@ class ReviewDecisionSerializer(serializers.ModelSerializer):
 class ReviewActionSerializer(serializers.Serializer):
     """Serializer for review actions."""
     decision = serializers.ChoiceField(choices=ReviewDecision.DECISION_CHOICES)
-    reason = serializers.CharField(required=False, allow_blank=True)
+    reason = serializers.CharField(required=False, allow_blank=True, max_length=2000)
+
+
+class BulkApproveSerializer(serializers.Serializer):
+    activity_ids = serializers.ListField(child=serializers.UUIDField(), allow_empty=False, max_length=500)
+    reason = serializers.CharField(required=False, allow_blank=True, max_length=2000)

@@ -13,6 +13,7 @@ Challenges:
 - Tariff structures vary by utility
 """
 from datetime import datetime
+
 from .base_parser import BaseParserService
 
 

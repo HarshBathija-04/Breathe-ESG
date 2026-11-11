@@ -16,7 +16,7 @@ class AuditService:
     def __init__(self, tenant):
         self.tenant = tenant
 
-    def log(self, action, entity_type, entity_id, actor=None, before=None, 
+    def log(self, action, entity_type, entity_id, actor=None, before=None,
             after=None, reason='', ip_address=None, user_agent=None):
         """Create an audit log entry."""
         entry = AuditLog(

@@ -1,0 +1,21 @@
+[tool.ruff]
+line-length = 130
+target-version = "py313"
+extend-exclude = ["**/migrations/**", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["B904"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["apps", "esg_platform"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "esg_platform.settings"
+python_files = ["test_*.py"]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore:No directory at:UserWarning"]
+
+[tool.ruff.format]
+quote-style = "preserve"

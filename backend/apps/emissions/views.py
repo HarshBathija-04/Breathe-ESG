@@ -1,16 +1,23 @@
 """
 Dashboard API - aggregated statistics for the frontend dashboard.
 """
-from django.db.models import Count, Sum, Q
-from django.utils import timezone
-from rest_framework.decorators import api_view, permission_classes
+from django.db.models import Count, Q, Sum
+from django.db.models.functions import TruncMonth
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.normalization.models import NormalizedActivity
-from apps.ingestion.models import DataIngestionJob
 from apps.anomaly.models import AnomalyFlag
-from apps.review.models import ReviewDecision
+from apps.ingestion.models import DataIngestionJob
+from apps.normalization.models import NormalizedActivity
+from apps.normalization.serializers import NormalizedActivitySerializer
+from esg_platform.throttles import AIThrottle
+
+from .insights import InsightsUnavailable, generate_briefing
+
+EXCLUDED_STATUSES = [NormalizedActivity.STATUS_FLAGGED, NormalizedActivity.STATUS_REJECTED]
+ORDERING_FIELDS = {'created_at', 'period_start', 'co2e', 'activity_value', 'status', 'scope', 'category'}
 
 
 @api_view(['GET'])
@@ -50,26 +57,29 @@ def dashboard_stats(request):
         status_counts[status_key] = stat['count']
         status_counts['total'] += stat['count']
 
-    # CO2e by scope — include all statuses so charts show data even before approval
-    scope_emissions = NormalizedActivity.objects.filter(
-        tenant=tenant,
-    ).values('scope').annotate(
-        total_co2e=Sum('co2e'),
-        count=Count('id')
-    )
-
-    # CO2e by category — include all statuses
-    category_emissions = NormalizedActivity.objects.filter(
-        tenant=tenant,
-    ).values('category').annotate(
-        total_co2e=Sum('co2e'),
-        count=Count('id')
-    )
+    # CO2e charts count only "reportable" records: flagged (suspect until resolved)
+    # and rejected records are excluded, and their flagged total is reported separately.
+    reportable = NormalizedActivity.objects.filter(tenant=tenant).exclude(status__in=EXCLUDED_STATUSES)
+    scope_emissions = reportable.values('scope').annotate(total_co2e=Sum('co2e'), count=Count('id')).order_by('scope')
+    category_emissions = reportable.values('category').annotate(
+        total_co2e=Sum('co2e'), count=Count('id')).order_by('-total_co2e')
+    flagged_co2e = NormalizedActivity.objects.filter(
+        tenant=tenant, status=NormalizedActivity.STATUS_FLAGGED).aggregate(total=Sum('co2e'))['total'] or 0
 
     # Recent ingestion jobs
     recent_jobs = DataIngestionJob.objects.filter(
         tenant=tenant
-    ).order_by('-created_at')[:5]
+    ).select_related('source_system').order_by('-created_at')[:5]
+
+    # Monthly CO2e trend by scope
+    monthly = reportable.annotate(month=TruncMonth('period_start')).values('month', 'scope').annotate(
+        total_co2e=Sum('co2e')
+    ).order_by('month')
+    by_month = {}
+    for row in monthly:
+        if row['month']:
+            key = row['month'].strftime('%Y-%m')
+            by_month.setdefault(key, {'month': key})[row['scope']] = float(row['total_co2e'] or 0)
 
     job_list = []
     for job in recent_jobs:
@@ -97,6 +107,8 @@ def dashboard_stats(request):
         'activities': status_counts,
         'emissions_by_scope': list(scope_emissions),
         'emissions_by_category': list(category_emissions),
+        'emissions_by_month': list(by_month.values()),
+        'flagged_co2e': float(flagged_co2e),
         'recent_jobs': job_list,
         'anomalies': anomaly_counts,
     })
@@ -137,15 +149,24 @@ def activities_list(request):
             Q(sub_category__icontains=search)
         )
 
-    # Ordering
+    # Ordering (whitelisted: arbitrary field names would raise FieldError)
     ordering = request.query_params.get('ordering', '-created_at')
+    if ordering.lstrip('-') not in ORDERING_FIELDS:
+        ordering = '-created_at'
     activities = activities.order_by(ordering)
 
-    # Pagination
-    from rest_framework.pagination import PageNumberPagination
     paginator = PageNumberPagination()
     page = paginator.paginate_queryset(activities, request)
-
-    from apps.normalization.serializers import NormalizedActivitySerializer
     serializer = NormalizedActivitySerializer(page, many=True)
     return paginator.get_paginated_response(serializer.data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@throttle_classes([AIThrottle])
+def ai_insights(request):
+    """Generate an AI executive briefing (Groq) from the tenant's aggregated emissions."""
+    try:
+        return Response(generate_briefing(request.user.tenant))
+    except InsightsUnavailable as exc:
+        return Response({'error': str(exc), 'code': 'ai_unavailable'}, status=exc.status_code)

@@ -1,84 +1,56 @@
+import animate from 'tailwindcss-animate';
+
+const token = (name) => `hsl(var(--${name}) / <alpha-value>)`;
+
 /** @type {import('tailwindcss').Config} */
-module.exports = {
-  darkMode: ["class"],
-  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+export default {
+  content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
+    container: { center: true, padding: '1rem', screens: { '2xl': '1200px' } },
     extend: {
+      fontFamily: {
+        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        display: ['Fraunces', 'ui-serif', 'Georgia', 'serif'],
+        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+      },
       colors: {
-        border: "hsl(var(--border))",
-        input: "hsl(var(--input))",
-        ring: "hsl(var(--ring))",
-        background: "hsl(var(--background))",
-        foreground: "hsl(var(--foreground))",
-        primary: {
-          DEFAULT: "hsl(var(--primary))",
-          foreground: "hsl(var(--primary-foreground))",
-        },
-        secondary: {
-          DEFAULT: "hsl(var(--secondary))",
-          foreground: "hsl(var(--secondary-foreground))",
-        },
-        destructive: {
-          DEFAULT: "hsl(var(--destructive) / <alpha-value>)",
-          foreground: "hsl(var(--destructive-foreground) / <alpha-value>)",
-        },
-        muted: {
-          DEFAULT: "hsl(var(--muted))",
-          foreground: "hsl(var(--muted-foreground))",
-        },
-        accent: {
-          DEFAULT: "hsl(var(--accent))",
-          foreground: "hsl(var(--accent-foreground))",
-        },
-        popover: {
-          DEFAULT: "hsl(var(--popover))",
-          foreground: "hsl(var(--popover-foreground))",
-        },
-        card: {
-          DEFAULT: "hsl(var(--card))",
-          foreground: "hsl(var(--card-foreground))",
-        },
-        sidebar: {
-          DEFAULT: "hsl(var(--sidebar-background))",
-          foreground: "hsl(var(--sidebar-foreground))",
-          primary: "hsl(var(--sidebar-primary))",
-          "primary-foreground": "hsl(var(--sidebar-primary-foreground))",
-          accent: "hsl(var(--sidebar-accent))",
-          "accent-foreground": "hsl(var(--sidebar-accent-foreground))",
-          border: "hsl(var(--sidebar-border))",
-          ring: "hsl(var(--sidebar-ring))",
-        },
+        border: token('border'),
+        input: token('input'),
+        ring: token('ring'),
+        background: token('background'),
+        foreground: token('foreground'),
+        primary: { DEFAULT: token('primary'), foreground: token('primary-foreground') },
+        secondary: { DEFAULT: token('secondary'), foreground: token('secondary-foreground') },
+        destructive: { DEFAULT: token('destructive'), foreground: token('destructive-foreground') },
+        muted: { DEFAULT: token('muted'), foreground: token('muted-foreground') },
+        accent: { DEFAULT: token('accent'), foreground: token('accent-foreground') },
+        popover: { DEFAULT: token('popover'), foreground: token('popover-foreground') },
+        card: { DEFAULT: token('card'), foreground: token('card-foreground') },
+        success: { DEFAULT: token('success'), soft: token('success-soft') },
+        warning: { DEFAULT: token('warning'), soft: token('warning-soft') },
+        danger: { DEFAULT: token('destructive'), soft: token('danger-soft') },
+        info: { DEFAULT: token('info'), soft: token('info-soft') },
+        scope1: token('scope1'),
+        scope2: token('scope2'),
+        scope3: token('scope3'),
+        ink: token('ink'),
       },
       borderRadius: {
-        xl: "calc(var(--radius) + 4px)",
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
-        xs: "calc(var(--radius) - 6px)",
+        xl: 'calc(var(--radius) + 4px)',
+        lg: 'var(--radius)',
+        md: 'calc(var(--radius) - 2px)',
+        sm: 'calc(var(--radius) - 4px)',
       },
       boxShadow: {
-        xs: "0 1px 2px 0 rgb(0 0 0 / 0.05)",
+        xs: '0 1px 2px 0 rgb(16 24 20 / 0.05)',
+        card: '0 1px 2px rgb(16 24 20 / 0.04), 0 1px 3px rgb(16 24 20 / 0.06)',
+        pop: '0 4px 12px rgb(16 24 20 / 0.08), 0 16px 40px -12px rgb(16 24 20 / 0.18)',
       },
       keyframes: {
-        "accordion-down": {
-          from: { height: "0" },
-          to: { height: "var(--radix-accordion-content-height)" },
-        },
-        "accordion-up": {
-          from: { height: "var(--radix-accordion-content-height)" },
-          to: { height: "0" },
-        },
-        "caret-blink": {
-          "0%,70%,100%": { opacity: "1" },
-          "20%,50%": { opacity: "0" },
-        },
+        'fade-up': { from: { opacity: '0', transform: 'translateY(4px)' }, to: { opacity: '1', transform: 'none' } },
       },
-      animation: {
-        "accordion-down": "accordion-down 0.2s ease-out",
-        "accordion-up": "accordion-up 0.2s ease-out",
-        "caret-blink": "caret-blink 1.25s ease-out infinite",
-      },
+      animation: { 'fade-up': 'fade-up 220ms ease-out both' },
     },
   },
-  plugins: [require("tailwindcss-animate")],
-}
+  plugins: [animate],
+};

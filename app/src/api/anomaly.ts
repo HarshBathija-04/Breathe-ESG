@@ -1,8 +1,8 @@
 /*
-
 Anomaly API endpoints.
 */
 import apiClient from './client';
+import type { Paginated } from './ingestion';
 
 export interface AnomalyFlag {
   id: string;
@@ -28,22 +28,15 @@ export interface AnomalyFlag {
   created_at: string;
 }
 
+export interface AnomalyStats {
+  by_status: Array<{ status: string; count: number }>;
+  by_type: Array<{ anomaly_type: string; count: number }>;
+}
+
 export const anomalyApi = {
-  list: async (params?: { status?: string; type?: string; page?: number }) => {
-    const response = await apiClient.get('/anomalies/', { params });
-    return response.data;
-  },
-
-  getStats: async () => {
-    const response = await apiClient.get('/anomalies/stats/');
-    return response.data;
-  },
-
-  resolve: async (flagId: string, status: string, note?: string) => {
-    const response = await apiClient.post(`/anomalies/${flagId}/resolve/`, {
-      status,
-      note,
-    });
-    return response.data;
-  },
+  list: async (params?: { status?: string; type?: string; page?: number }): Promise<Paginated<AnomalyFlag>> =>
+    (await apiClient.get('/anomalies/', { params })).data,
+  getStats: async (): Promise<AnomalyStats> => (await apiClient.get('/anomalies/stats/')).data,
+  resolve: async (flagId: string, status: string, note?: string) =>
+    (await apiClient.post(`/anomalies/${flagId}/resolve/`, { status, note })).data,
 };

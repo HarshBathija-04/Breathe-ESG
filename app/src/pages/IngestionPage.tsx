@@ -1,208 +1,247 @@
 /*
-
-Ingestion page - upload files for SAP, Utility, and Travel data sources.
+Ingestion page - upload SAP, utility and travel exports and inspect each job.
 */
-import { useState, useRef } from 'react';
-import { ingestionApi, type IngestionJob } from '@/api/ingestion';
-import {
-  FileText,
-  CheckCircle2,
-  AlertCircle,
-  Loader2,
-  Database,
-  Zap,
-  Plane,
-  ChevronDown,
-  ChevronUp,
-} from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useCallback, useEffect, useState, type DragEvent } from 'react';
+import { ChevronDown, Database, Download, FileUp, Loader2, Plane, Zap, type LucideIcon } from 'lucide-react';
+import { toast } from 'sonner';
+import { ingestionApi, type IngestionJob, type SourceKind } from '@/api/ingestion';
+import { EmptyState, ErrorState, PageHeader, StatusBadge } from '@/components/common';
+import { Card } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { formatDateTime, sourceLabel } from '@/lib/format';
+import { messageFromError } from '@/lib/http';
+import { cn } from '@/lib/utils';
 
-interface UploadZoneProps {
+const SOURCES: Array<{
+  kind: SourceKind;
   title: string;
   description: string;
-  icon: typeof Database;
-  acceptedTypes: string;
-  onUpload: (file: File) => Promise<void>;
-  color: string;
-}
+  icon: LucideIcon;
+  samples: Array<{ file: string; label: string }>;
+}> = [
+  {
+    kind: 'sap',
+    title: 'SAP fuel & procurement',
+    description: 'Material movements with plant, quantity and unit. English or German headers.',
+    icon: Database,
+    samples: [
+      { file: 'sap_fuel.csv', label: 'English export' },
+      { file: 'sap_fuel_german.csv', label: 'German export' },
+    ],
+  },
+  {
+    kind: 'utility',
+    title: 'Utility electricity',
+    description: 'Meter readings with billing periods in kWh or MWh.',
+    icon: Zap,
+    samples: [{ file: 'utility_electricity.csv', label: 'Portal export' }],
+  },
+  {
+    kind: 'travel',
+    title: 'Corporate travel',
+    description: 'Flights, hotels, rail and ground transport from Concur or Navan.',
+    icon: Plane,
+    samples: [{ file: 'travel_data.csv', label: 'Travel export' }],
+  },
+];
 
-function UploadZone({ title, description, icon: Icon, acceptedTypes, onUpload, color }: UploadZoneProps) {
-  const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+function UploadZone({
+  source,
+  busy,
+  disabled,
+  onUpload,
+}: {
+  source: (typeof SOURCES)[number];
+  busy: boolean;
+  disabled: boolean;
+  onUpload: (file: File) => void;
+}) {
+  const [dragging, setDragging] = useState(false);
+  const inputId = `upload-${source.kind}`;
 
-  const handleDragOver = (e: React.DragEvent) => {
+  const onDrop = (e: DragEvent) => {
     e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = () => {
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
+    setDragging(false);
     const file = e.dataTransfer.files[0];
-    if (file) onUpload(file);
-  };
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) onUpload(file);
+    if (file && !disabled) onUpload(file);
   };
 
   return (
-    <Card className={`transition-all ${isDragging ? 'ring-2 ring-emerald-500 border-emerald-500' : ''}`}>
-      <CardContent className="p-6">
-        <div
-          className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-gray-400 transition-colors"
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <div className={`w-12 h-12 ${color} rounded-xl flex items-center justify-center mx-auto mb-4`}>
-            <Icon className="w-6 h-6 text-white" />
-          </div>
-          <h3 className="font-semibold text-gray-900 mb-1">{title}</h3>
-          <p className="text-sm text-gray-500 mb-4">{description}</p>
-          <p className="text-xs text-gray-400">Drop CSV here or click to browse</p>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={acceptedTypes}
-            className="hidden"
-            onChange={handleFileSelect}
-          />
+    <Card className="gap-4 px-5">
+      <div className="flex items-start gap-3">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+          <source.icon className="size-4" aria-hidden="true" />
+        </span>
+        <div>
+          <h2 className="font-medium text-ink">{source.title}</h2>
+          <p className="text-sm text-muted-foreground">{source.description}</p>
         </div>
-      </CardContent>
+      </div>
+
+      <label
+        htmlFor={inputId}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={onDrop}
+        className={cn(
+          'flex min-h-32 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-6 text-center transition-colors duration-150 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2',
+          dragging
+            ? 'border-primary bg-accent/60'
+            : 'border-input hover:border-primary/60 hover:bg-secondary/60',
+          disabled && 'cursor-not-allowed opacity-60',
+        )}
+      >
+        {busy ? (
+          <Loader2 className="size-5 animate-spin text-primary" aria-hidden="true" />
+        ) : (
+          <FileUp className="size-5 text-muted-foreground" aria-hidden="true" />
+        )}
+        <span className="text-sm font-medium text-ink">
+          {busy ? 'Processing file' : 'Choose a CSV or drop it here'}
+        </span>
+        <span className="text-xs text-muted-foreground">Up to 5 MB</span>
+        <input
+          id={inputId}
+          type="file"
+          accept=".csv,text/csv"
+          className="sr-only"
+          disabled={disabled}
+          aria-label={`Upload ${source.title} CSV`}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) onUpload(file);
+            e.target.value = '';
+          }}
+        />
+      </label>
+
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+        <span className="text-muted-foreground">Sample data:</span>
+        {source.samples.map((s) => (
+          <a
+            key={s.file}
+            href={`/data/${s.file}`}
+            download
+            className="inline-flex items-center gap-1 rounded font-medium text-primary hover:underline"
+          >
+            <Download className="size-3" aria-hidden="true" />
+            {s.label}
+          </a>
+        ))}
+      </div>
     </Card>
   );
 }
 
-interface JobResultProps {
-  job: IngestionJob;
-}
-
-function JobResult({ job }: JobResultProps) {
-  const [expanded, setExpanded] = useState(false);
-
-  const isSuccess = job.status === 'COMPLETED' || job.status === 'PARTIAL';
-  const isFailed = job.status === 'FAILED';
-
+function JobRow({ job }: { job: IngestionJob }) {
+  const [open, setOpen] = useState(false);
+  const pct = job.total_rows ? Math.round((job.normalized_rows / job.total_rows) * 100) : 0;
   return (
-    <Card className={`${isFailed ? 'border-red-300' : isSuccess ? 'border-green-300' : ''}`}>
-      <CardContent className="p-4">
-        <div className="flex items-start gap-3">
-          {isFailed ? (
-            <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
-          ) : (
-            <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
+    <li>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-3 px-5 py-3 text-left text-sm transition-colors duration-150 hover:bg-secondary/60"
+      >
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-medium text-ink">{job.original_filename}</p>
+          <p className="text-xs text-muted-foreground">
+            {sourceLabel(job.source_type)} · {formatDateTime(job.created_at)} · {job.created_by_name}
+          </p>
+        </div>
+        <div className="hidden w-40 sm:block" aria-hidden="true">
+          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+            <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
+          </div>
+          <p className="tabular mt-1 text-xs text-muted-foreground">
+            {job.normalized_rows}/{job.total_rows} normalized
+            {job.flagged_rows > 0 && ` · ${job.flagged_rows} flags`}
+          </p>
+        </div>
+        <StatusBadge status={job.status} />
+        <ChevronDown
+          className={cn(
+            'size-4 shrink-0 text-muted-foreground transition-transform duration-150',
+            open && 'rotate-180',
           )}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between">
-              <p className="font-medium text-gray-900 truncate">{job.original_filename}</p>
-              <span className={`text-xs px-2 py-1 rounded-full shrink-0 ml-2 ${
-                isFailed ? 'bg-red-100 text-red-700' :
-                job.status === 'PARTIAL' ? 'bg-amber-100 text-amber-700' :
-                'bg-green-100 text-green-700'
-              }`}>
-                {job.status}
-              </span>
-            </div>
-            <p className="text-sm text-gray-500">
-              {job.source_type} · {job.parsed_rows} parsed · {job.normalized_rows} normalized
-              {job.flagged_rows > 0 && ` · ${job.flagged_rows} flagged`}
-            </p>
-
-            {/* Progress bars */}
-            <div className="mt-3 space-y-2">
-              {job.total_rows > 0 && (
-                <div>
-                  <div className="flex justify-between text-xs text-gray-500 mb-1">
-                    <span>Parsed</span>
-                    <span>{job.parsed_rows}/{job.total_rows}</span>
-                  </div>
-                  <Progress
-                    value={job.total_rows > 0 ? (job.parsed_rows / job.total_rows) * 100 : 0}
-                    className="h-2"
-                  />
-                </div>
-              )}
-              {job.parsed_rows > 0 && (
-                <div>
-                  <div className="flex justify-between text-xs text-gray-500 mb-1">
-                    <span>Normalized</span>
-                    <span>{job.normalized_rows}/{job.parsed_rows}</span>
-                  </div>
-                  <Progress
-                    value={job.parsed_rows > 0 ? (job.normalized_rows / job.parsed_rows) * 100 : 0}
-                    className="h-2"
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* Logs */}
-            {job.logs.length > 0 && (
-              <div className="mt-3">
-                <button
-                  onClick={() => setExpanded(!expanded)}
-                  className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700"
-                >
-                  {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                  {expanded ? 'Hide logs' : 'Show logs'}
-                </button>
-                {expanded && (
-                  <div className="mt-2 max-h-40 overflow-y-auto bg-gray-50 rounded-lg p-3 text-xs font-mono space-y-1">
-                    {job.logs.map((log, idx) => (
-                      <div key={idx} className={`${
-                        log.level === 'ERROR' ? 'text-red-600' :
-                        log.level === 'WARN' ? 'text-amber-600' :
-                        'text-gray-600'
-                      }`}>
-                        <span className="text-gray-400">[{log.level}]</span> {log.message}
-                      </div>
-                    ))}
-                  </div>
-                )}
+          aria-hidden="true"
+        />
+      </button>
+      {open && (
+        <div className="border-t bg-secondary/40 px-5 py-3">
+          <dl className="tabular grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+            {[
+              ['Rows', job.total_rows],
+              ['Parsed', job.parsed_rows],
+              ['Failed', job.failed_rows],
+              ['Flagged', job.flagged_rows],
+            ].map(([k, v]) => (
+              <div key={k as string}>
+                <dt className="text-muted-foreground">{k}</dt>
+                <dd className="font-medium text-ink">{v}</dd>
               </div>
-            )}
-          </div>
+            ))}
+          </dl>
+          {job.logs.length > 0 && (
+            <ol className="mt-3 max-h-48 space-y-1 overflow-y-auto rounded-md border bg-card p-3 font-mono text-xs">
+              {job.logs.map((log, i) => (
+                <li
+                  key={i}
+                  className={
+                    log.level === 'ERROR'
+                      ? 'text-destructive'
+                      : log.level === 'WARN'
+                        ? 'text-warning'
+                        : 'text-muted-foreground'
+                  }
+                >
+                  <span className="font-semibold">[{log.level}]</span> {log.message}
+                </li>
+              ))}
+            </ol>
+          )}
         </div>
-      </CardContent>
-    </Card>
+      )}
+    </li>
   );
 }
 
-export function IngestionPage() {
-  const [uploading, setUploading] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [jobs, setJobs] = useState<IngestionJob[]>([]);
+export default function IngestionPage() {
+  const [jobs, setJobs] = useState<IngestionJob[] | null>(null);
+  const [error, setError] = useState('');
+  const [uploading, setUploading] = useState<SourceKind | null>(null);
 
-  const handleUpload = async (type: 'sap' | 'utility' | 'travel', file: File) => {
-    setUploading(type);
-    setError(null);
-
+  const load = useCallback(async () => {
+    setError('');
     try {
-      let job: IngestionJob;
-      switch (type) {
-        case 'sap':
-          job = await ingestionApi.uploadSAP(file);
-          break;
-        case 'utility':
-          job = await ingestionApi.uploadUtility(file);
-          break;
-        case 'travel':
-          job = await ingestionApi.uploadTravel(file);
-          break;
-      }
-      setJobs(prev => [job, ...prev]);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Upload failed';
-      setError(message);
+      setJobs((await ingestionApi.listJobs()).results);
+    } catch (err) {
+      setError(messageFromError(err, 'Ingestion history could not be loaded.'));
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const upload = async (kind: SourceKind, file: File) => {
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+      toast.error('Only .csv files are supported.');
+      return;
+    }
+    setUploading(kind);
+    try {
+      const job = await ingestionApi.upload(kind, file);
+      setJobs((prev) => [job, ...(prev ?? [])]);
+      const msg = `${job.normalized_rows} of ${job.total_rows} rows normalized${job.flagged_rows ? `, ${job.flagged_rows} flagged` : ''}.`;
+      if (job.status === 'FAILED') toast.error(`${file.name} failed. Open the job to see the log.`);
+      else toast.success(`${file.name} ingested`, { description: msg });
+    } catch (err) {
+      toast.error(messageFromError(err, 'Upload failed. Please try again.'));
     } finally {
       setUploading(null);
     }
@@ -210,100 +249,46 @@ export function IngestionPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Data Ingestion</h1>
-        <p className="text-gray-500 mt-1">Upload data from SAP, utility portals, and travel platforms</p>
+      <PageHeader
+        title="Ingestion"
+        description="Each file is parsed, normalized into GHG scopes with emission factors, and screened for anomalies."
+      />
+
+      <div className="grid gap-4 md:grid-cols-3">
+        {SOURCES.map((source) => (
+          <UploadZone
+            key={source.kind}
+            source={source}
+            busy={uploading === source.kind}
+            disabled={uploading !== null}
+            onUpload={(file) => upload(source.kind, file)}
+          />
+        ))}
       </div>
 
-      {/* Error */}
-      {error && (
-        <Alert variant="destructive">
-          <AlertCircle className="w-4 h-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
-      {/* Upload zones */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <UploadZone
-          title="SAP Fuel & Procurement"
-          description="Upload SAP CSV export with fuel and material data"
-          icon={Database}
-          acceptedTypes=".csv"
-          color="bg-amber-600"
-          onUpload={(file) => handleUpload('sap', file)}
-        />
-        <UploadZone
-          title="Utility Electricity"
-          description="Upload utility portal CSV with meter readings"
-          icon={Zap}
-          acceptedTypes=".csv"
-          color="bg-blue-600"
-          onUpload={(file) => handleUpload('utility', file)}
-        />
-        <UploadZone
-          title="Corporate Travel"
-          description="Upload travel platform CSV with flights, hotels, ground"
-          icon={Plane}
-          acceptedTypes=".csv"
-          color="bg-purple-600"
-          onUpload={(file) => handleUpload('travel', file)}
-        />
-      </div>
-
-      {/* Uploading indicator */}
-      {uploading && (
-        <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-lg">
-          <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
-          <p className="text-sm text-blue-700">
-            Processing {uploading} upload... This may take a moment.
-          </p>
-        </div>
-      )}
-
-      {/* Results */}
-      {jobs.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold text-gray-900">Recent Uploads</h2>
-          <div className="space-y-3">
-            {jobs.map((job) => (
-              <JobResult key={job.id} job={job} />
+      <Card className="gap-0 p-0">
+        <h2 className="px-5 py-4 font-medium text-ink">Ingestion history</h2>
+        {error && !jobs ? (
+          <ErrorState message={error} onRetry={load} />
+        ) : !jobs ? (
+          <div className="space-y-3 border-t p-5" aria-busy="true" aria-label="Loading jobs">
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} className="h-12" />
             ))}
           </div>
-        </div>
-      )}
-
-      {/* Sample data info */}
-      <Card className="bg-gray-50 border-dashed">
-        <CardHeader>
-          <CardTitle className="text-sm text-gray-600">Sample Data</CardTitle>
-          <CardDescription>
-            The following sample files are included in the repository for testing:
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm text-gray-600">
-          <div className="flex items-center gap-2">
-            <FileText className="w-4 h-4 text-gray-400" />
-            <span>sap_fuel.csv - SAP export (English headers, 54 rows with inconsistencies)</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <FileText className="w-4 h-4 text-gray-400" />
-            <span>sap_fuel_german.csv - SAP export (German headers, semicolon-delimited)</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <FileText className="w-4 h-4 text-gray-400" />
-            <span>utility_electricity.csv - Utility portal export (41 rows)</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <FileText className="w-4 h-4 text-gray-400" />
-            <span>travel_data.csv - Travel platform export (63 rows)</span>
-          </div>
-          <p className="text-xs text-gray-400 mt-2">
-            Each file contains intentional inconsistencies (negative values, duplicates, 
-            invalid units, missing data) to test the anomaly detection pipeline.
-          </p>
-        </CardContent>
+        ) : jobs.length === 0 ? (
+          <EmptyState
+            icon={FileUp}
+            title="No uploads yet"
+            description="Start with one of the sample files above."
+          />
+        ) : (
+          <ul className="divide-y border-t">
+            {jobs.map((job) => (
+              <JobRow key={job.id} job={job} />
+            ))}
+          </ul>
+        )}
       </Card>
     </div>
   );

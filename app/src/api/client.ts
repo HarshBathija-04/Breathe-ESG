@@ -1,42 +1,52 @@
-/*
+/**
+ * Axios client: API base URL from VITE_API_URL, JWT bearer auth, cold-start
+ * tracking and a single place that reacts to expired sessions.
+ */
+import axios, { type InternalAxiosRequestConfig } from 'axios';
+import { healthUrlFor } from '@/lib/http';
+import { trackRequest } from '@/lib/wake';
 
-API client with JWT authentication.
-*/
-import axios from 'axios';
+export const API_BASE_URL: string = import.meta.env.VITE_API_URL || 'http://localhost:5110/api';
+export const TOKEN_KEY = 'access_token';
+export const USER_KEY = 'user';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+type TrackedConfig = InternalAxiosRequestConfig & { _done?: () => void };
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  timeout: 120000, // 2 min — Supabase (Sydney) latency from India
+  timeout: 90_000, // generous: a sleeping Render instance can take ~60s to answer
 });
 
-// Request interceptor - add JWT token
-apiClient.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('access_token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
+apiClient.interceptors.request.use((config: TrackedConfig) => {
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  config._done = trackRequest();
+  return config;
+});
 
-// Response interceptor - handle 401
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    (response.config as TrackedConfig)._done?.();
+    return response;
+  },
   (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('user');
-      window.location.href = '/login';
+    (error.config as TrackedConfig | undefined)?._done?.();
+    // Expired or invalid session: clear it and send the user to sign in again.
+    if (error.response?.status === 401 && localStorage.getItem(TOKEN_KEY)) {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+      window.location.assign('/login?expired=1');
     }
     return Promise.reject(error);
-  }
+  },
 );
+
+/** Fire-and-forget ping so a sleeping backend starts waking while the user reads. */
+export function warmUpServer(): void {
+  const done = trackRequest();
+  fetch(healthUrlFor(API_BASE_URL))
+    .catch(() => undefined)
+    .finally(done);
+}
 
 export default apiClient;

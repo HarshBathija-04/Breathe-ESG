@@ -1,8 +1,8 @@
 /*
-
 Audit API endpoints.
 */
 import apiClient from './client';
+import type { Paginated } from './ingestion';
 
 export interface AuditLogEntry {
   id: string;
@@ -19,13 +19,9 @@ export interface AuditLogEntry {
 }
 
 export const auditApi = {
-  getTimeline: async (params?: { entity_type?: string; action?: string; page?: number }) => {
-    const response = await apiClient.get('/audit/', { params });
-    return response.data;
-  },
-
-  getEntityHistory: async (entityType: string, entityId: string) => {
-    const response = await apiClient.get(`/audit/${entityType}/${entityId}/`);
-    return response.data;
-  },
+  getTimeline: async (params?: {
+    entity_type?: string;
+    action?: string;
+    page?: number;
+  }): Promise<Paginated<AuditLogEntry>> => (await apiClient.get('/audit/', { params })).data,
 };

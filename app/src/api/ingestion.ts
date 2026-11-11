@@ -1,8 +1,9 @@
 /*
-
 Ingestion API endpoints.
 */
 import apiClient from './client';
+
+export type SourceKind = 'sap' | 'utility' | 'travel';
 
 export interface IngestionJob {
   id: string;
@@ -17,56 +18,29 @@ export interface IngestionJob {
   failed_rows: number;
   normalized_rows: number;
   flagged_rows: number;
-  logs: Array<{
-    timestamp: string;
-    level: string;
-    message: string;
-    details?: Record<string, unknown>;
-  }>;
+  logs: Array<{ timestamp: string; level: string; message: string; details?: Record<string, unknown> }>;
   created_by: string;
   created_by_name: string;
   created_at: string;
 }
 
+export interface Paginated<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
+
 export const ingestionApi = {
-  uploadSAP: async (file: File, sourceSystemId?: string): Promise<IngestionJob> => {
+  upload: async (kind: SourceKind, file: File): Promise<IngestionJob> => {
     const formData = new FormData();
     formData.append('file', file);
-    if (sourceSystemId) {
-      formData.append('source_system_id', sourceSystemId);
-    }
-    const response = await apiClient.post('/ingest/sap/', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-    return response.data;
+    return (await apiClient.post(`/ingest/${kind}/`, formData)).data;
   },
 
-  uploadUtility: async (file: File, sourceSystemId?: string): Promise<IngestionJob> => {
-    const formData = new FormData();
-    formData.append('file', file);
-    if (sourceSystemId) {
-      formData.append('source_system_id', sourceSystemId);
-    }
-    const response = await apiClient.post('/ingest/utility/', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-    return response.data;
-  },
-
-  uploadTravel: async (file: File, sourceSystemId?: string): Promise<IngestionJob> => {
-    const formData = new FormData();
-    formData.append('file', file);
-    if (sourceSystemId) {
-      formData.append('source_system_id', sourceSystemId);
-    }
-    const response = await apiClient.post('/ingest/travel/', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-    return response.data;
-  },
-
-  listJobs: async (params?: { status?: string; source_type?: string }) => {
-    const response = await apiClient.get('/ingest/jobs/', { params });
-    return response.data;
-  },
+  listJobs: async (params?: {
+    status?: string;
+    source_type?: string;
+    page?: number;
+  }): Promise<Paginated<IngestionJob>> => (await apiClient.get('/ingest/jobs/', { params })).data,
 };

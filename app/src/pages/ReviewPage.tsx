@@ -1,22 +1,13 @@
 /*
-
-Review Queue page - analysts can review, approve, or reject normalized activities.
+Review queue - reviewers approve or reject normalized activities before audit lock.
 */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { CheckCircle2, ClipboardCheck, Eye, Info, Loader2, Search, XCircle } from 'lucide-react';
+import { toast } from 'sonner';
 import { reviewApi, type NormalizedActivity, type ReviewDecision } from '@/api/review';
-import { useAuth } from '@/context/AuthContext';
-import {
-  ClipboardCheck,
-  CheckCircle2,
-  XCircle,
-  Search,
-  Eye,
-  Loader2,
-} from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+import { EmptyState, ErrorState, PageHeader, ScopeBadge, StatusBadge } from '@/components/common';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
+import { Card } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -25,352 +16,416 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
+import { useAuth } from '@/context/AuthContext';
+import { formatCO2e, formatDate, formatNumber, humanize, sourceLabel } from '@/lib/format';
+import { messageFromError } from '@/lib/http';
 
-const STATUS_BADGES = {
-  PENDING_REVIEW: { label: 'Pending', className: 'bg-amber-100 text-amber-800 hover:bg-amber-100' },
-  FLAGGED: { label: 'Flagged', className: 'bg-red-100 text-red-800 hover:bg-red-100' },
-  APPROVED: { label: 'Approved', className: 'bg-green-100 text-green-800 hover:bg-green-100' },
-  REJECTED: { label: 'Rejected', className: 'bg-gray-100 text-gray-800 hover:bg-gray-100' },
-  LOCKED: { label: 'Locked', className: 'bg-indigo-100 text-indigo-800 hover:bg-indigo-100' },
-};
+type Decision = 'APPROVE' | 'REJECT';
+const FILTERS = [
+  { value: '', label: 'All open' },
+  { value: 'PENDING_REVIEW', label: 'Pending' },
+  { value: 'FLAGGED', label: 'Flagged' },
+];
 
-const SCOPE_COLORS = {
-  Scope1: 'bg-orange-100 text-orange-800',
-  Scope2: 'bg-blue-100 text-blue-800',
-  Scope3: 'bg-green-100 text-green-800',
-};
-
-export function ReviewPage() {
+export default function ReviewPage() {
   const { user } = useAuth();
-  const [activities, setActivities] = useState<NormalizedActivity[]>([]);
-  const [filtered, setFiltered] = useState<NormalizedActivity[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState<NormalizedActivity[] | null>(null);
+  const [count, setCount] = useState(0);
+  const [page, setPage] = useState(1);
+  const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [selectedActivity, setSelectedActivity] = useState<NormalizedActivity | null>(null);
-  const [decisionReason, setDecisionReason] = useState('');
-  const [showDecisionDialog, setShowDecisionDialog] = useState(false);
-  const [decisionType, setDecisionType] = useState<'APPROVE' | 'REJECT' | null>(null);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [history, setHistory] = useState<ReviewDecision[]>([]);
-  const [showHistory, setShowHistory] = useState(false);
+  const [error, setError] = useState('');
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [decision, setDecision] = useState<{ activity: NormalizedActivity; type: Decision } | null>(null);
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [detail, setDetail] = useState<{
+    activity: NormalizedActivity;
+    history: ReviewDecision[] | null;
+  } | null>(null);
 
-  useEffect(() => {
-    loadActivities();
+  const load = useCallback(async (nextPage: number, filter: string) => {
+    setError('');
+    if (nextPage > 1) setLoadingMore(true);
+    try {
+      const data = await reviewApi.getPending({ page: nextPage, status: filter || undefined });
+      setItems((prev) => (nextPage > 1 && prev ? [...prev, ...data.results] : data.results));
+      setCount(data.count);
+      setPage(nextPage);
+    } catch (err) {
+      setError(messageFromError(err, 'The review queue could not be loaded.'));
+    } finally {
+      setLoadingMore(false);
+    }
   }, []);
 
   useEffect(() => {
-    filterActivities();
-  }, [activities, search, statusFilter]);
+    setItems(null);
+    load(1, status);
+  }, [load, status]);
 
-  const loadActivities = async () => {
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!items || !q) return items ?? [];
+    return items.filter((a) =>
+      [a.facility_code, a.vendor, a.sub_category, a.category, a.source_type].some((v) =>
+        v?.toLowerCase().includes(q),
+      ),
+    );
+  }, [items, search]);
+
+  const submitDecision = async () => {
+    if (!decision) return;
+    setSubmitting(true);
     try {
-      const data = await reviewApi.getPending();
-      // Handle both plain array (old backend) and paginated {results:[]} (new backend)
-      const list = Array.isArray(data) ? data : (data.results ?? []);
-      setActivities(list as NormalizedActivity[]);
-    } catch {
-      // Handle error
+      await reviewApi.submitDecision(decision.activity.id, decision.type, reason);
+      setItems((prev) => prev?.filter((a) => a.id !== decision.activity.id) ?? null);
+      setCount((c) => c - 1);
+      toast.success(decision.type === 'APPROVE' ? 'Activity approved' : 'Activity rejected');
+      setDecision(null);
+      setReason('');
+    } catch (err) {
+      toast.error(messageFromError(err, 'The decision could not be saved.'));
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
-  const filterActivities = () => {
-    let result = [...activities];
-
-    if (statusFilter !== 'all') {
-      result = result.filter(a => a.status === statusFilter);
-    }
-
-    if (search) {
-      const q = search.toLowerCase();
-      result = result.filter(a =>
-        a.facility_code.toLowerCase().includes(q) ||
-        a.vendor.toLowerCase().includes(q) ||
-        a.sub_category.toLowerCase().includes(q) ||
-        a.category.toLowerCase().includes(q)
-      );
-    }
-
-    setFiltered(result);
-  };
-
-  const handleDecision = async () => {
-    if (!selectedActivity || !decisionType) return;
-
-    setActionLoading(selectedActivity.id);
-    try {
-      await reviewApi.submitDecision(
-        selectedActivity.id,
-        decisionType,
-        decisionReason
-      );
-      // Remove from list or update status
-      setActivities(prev =>
-        prev.filter(a => a.id !== selectedActivity.id)
-      );
-      setShowDecisionDialog(false);
-      setDecisionReason('');
-    } catch {
-      // Handle error
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const openDecision = (activity: NormalizedActivity, type: 'APPROVE' | 'REJECT') => {
-    setSelectedActivity(activity);
-    setDecisionType(type);
-    setShowDecisionDialog(true);
-  };
-
-  const viewHistory = async (activity: NormalizedActivity) => {
-    setSelectedActivity(activity);
+  const openDetail = async (activity: NormalizedActivity) => {
+    setDetail({ activity, history: null });
     try {
       const data = await reviewApi.getHistory(activity.id);
-      setHistory(data.decisions || []);
-      setShowHistory(true);
-    } catch {
-      setHistory([]);
+      setDetail({ activity, history: data.decisions ?? [] });
+    } catch (err) {
+      toast.error(messageFromError(err, 'History could not be loaded.'));
+      setDetail({ activity, history: [] });
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
-      </div>
-    );
-  }
+  const actions = (a: NormalizedActivity) => (
+    <div className="flex items-center justify-end gap-1">
+      <Button
+        size="sm"
+        variant="ghost"
+        className="text-success hover:bg-success-soft hover:text-success"
+        disabled={!user?.can_review}
+        onClick={() => setDecision({ activity: a, type: 'APPROVE' })}
+        aria-label={`Approve ${a.sub_category} record`}
+      >
+        <CheckCircle2 aria-hidden="true" /> <span className="hidden xl:inline">Approve</span>
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="text-destructive hover:bg-danger-soft hover:text-destructive"
+        disabled={!user?.can_review}
+        onClick={() => setDecision({ activity: a, type: 'REJECT' })}
+        aria-label={`Reject ${a.sub_category} record`}
+      >
+        <XCircle aria-hidden="true" /> <span className="hidden xl:inline">Reject</span>
+      </Button>
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        onClick={() => openDetail(a)}
+        aria-label={`View details of ${a.sub_category} record`}
+      >
+        <Eye aria-hidden="true" />
+      </Button>
+    </div>
+  );
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Review Queue</h1>
-          <p className="text-gray-500 mt-1">
-            Review and approve normalized activities before audit lock
+      <PageHeader
+        title="Review queue"
+        description="Approve or reject normalized activities. Approved records can then be locked for audit."
+      />
+
+      {!user?.can_review && (
+        <div className="flex items-start gap-3 rounded-lg border bg-info-soft px-4 py-3 text-sm text-info">
+          <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          <p>
+            Your {humanize(user?.role)} role can browse the queue but not decide. Sign in as the Reviewer demo
+            account to approve or reject.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="secondary" className="bg-amber-100 text-amber-800">
-            {activities.filter(a => a.status === 'PENDING_REVIEW').length} pending
-          </Badge>
-          <Badge variant="secondary" className="bg-red-100 text-red-800">
-            {activities.filter(a => a.status === 'FLAGGED').length} flagged
-          </Badge>
-        </div>
-      </div>
+      )}
 
-      {/* Filters */}
-      <div className="flex gap-4">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative flex-1 sm:max-w-sm">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden="true"
+          />
           <Input
-            placeholder="Search by facility, vendor, category..."
+            type="search"
+            aria-label="Search loaded records"
+            placeholder="Search facility, vendor, category"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
+            className="h-10 pl-9"
           />
         </div>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white"
+        <div
+          role="group"
+          aria-label="Filter by status"
+          className="inline-flex w-fit rounded-lg border bg-card p-1"
         >
-          <option value="all">All Status</option>
-          <option value="PENDING_REVIEW">Pending Review</option>
-          <option value="FLAGGED">Flagged</option>
-          <option value="APPROVED">Approved</option>
-          <option value="REJECTED">Rejected</option>
-        </select>
+          {FILTERS.map((f) => (
+            <button
+              key={f.value}
+              type="button"
+              aria-pressed={status === f.value}
+              onClick={() => setStatus(f.value)}
+              className="h-8 rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors duration-150 hover:text-ink aria-pressed:bg-primary aria-pressed:text-primary-foreground"
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <p className="tabular text-sm text-muted-foreground sm:ml-auto" aria-live="polite">
+          {items ? `${count} open record${count === 1 ? '' : 's'}` : ''}
+        </p>
       </div>
 
-      {/* Activity table */}
-      <Card>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Source</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Scope</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Category</th>
-                  <th className="text-right px-4 py-3 font-medium text-gray-600">Value</th>
-                  <th className="text-right px-4 py-3 font-medium text-gray-600">CO₂e (kg)</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Period</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {filtered.map((activity) => {
-                  const badge = STATUS_BADGES[activity.status as keyof typeof STATUS_BADGES];
-                  const scopeColor = SCOPE_COLORS[activity.scope as keyof typeof SCOPE_COLORS];
-
-                  return (
-                    <tr key={activity.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3">
-                        <span className="font-medium text-gray-900">{activity.source_type}</span>
-                        {activity.edited_flag && (
-                          <span className="ml-1 text-xs text-amber-600">(edited)</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge variant="secondary" className={scopeColor}>
-                          {activity.scope}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3 capitalize text-gray-700">
-                        {activity.category}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-gray-700">
-                        {parseFloat(activity.activity_value).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                        <span className="text-gray-400 ml-1">{activity.normalized_unit}</span>
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-gray-700">
-                        {parseFloat(activity.co2e).toLocaleString(undefined, { maximumFractionDigits: 1 })}
-                      </td>
-                      <td className="px-4 py-3 text-gray-600">
-                        {new Date(activity.period_start).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
-                      </td>
-                      <td className="px-4 py-3">
-                        {badge && (
-                          <Badge variant="secondary" className={badge.className}>
-                            {badge.label}
-                          </Badge>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1">
-                          {activity.status !== 'APPROVED' && activity.status !== 'LOCKED' && (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-green-600 hover:text-green-700 hover:bg-green-50"
-                                onClick={() => openDecision(activity, 'APPROVE')}
-                                disabled={actionLoading === activity.id || !user?.can_approve}
-                              >
-                                <CheckCircle2 className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                onClick={() => openDecision(activity, 'REJECT')}
-                                disabled={actionLoading === activity.id}
-                              >
-                                <XCircle className="w-4 h-4" />
-                              </Button>
-                            </>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="text-gray-500 hover:text-gray-700"
-                            onClick={() => viewHistory(activity)}
-                          >
-                            <Eye className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+      <Card className="gap-0 overflow-hidden p-0">
+        {error && !items ? (
+          <ErrorState message={error} onRetry={() => load(1, status)} />
+        ) : !items ? (
+          <div className="space-y-3 p-5" aria-busy="true" aria-label="Loading review queue">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-11" />
+            ))}
           </div>
-
-          {filtered.length === 0 && (
-            <div className="text-center py-12 text-gray-500">
-              <ClipboardCheck className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-              <p>No activities to review</p>
+        ) : visible.length === 0 ? (
+          <EmptyState
+            icon={ClipboardCheck}
+            title={search ? 'No records match your search' : 'Queue is clear'}
+            description={
+              search
+                ? 'Try another term or clear the search.'
+                : 'Every record in this view has been reviewed.'
+            }
+          />
+        ) : (
+          <>
+            {/* Desktop table */}
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full text-sm">
+                <caption className="sr-only">Activities awaiting review</caption>
+                <thead className="border-b bg-secondary/60 text-left text-xs font-medium text-muted-foreground">
+                  <tr>
+                    <th scope="col" className="px-4 py-2.5 font-medium">
+                      Source
+                    </th>
+                    <th scope="col" className="px-4 py-2.5 font-medium">
+                      Scope
+                    </th>
+                    <th scope="col" className="px-4 py-2.5 font-medium">
+                      Activity
+                    </th>
+                    <th scope="col" className="px-4 py-2.5 text-right font-medium">
+                      Quantity
+                    </th>
+                    <th scope="col" className="px-4 py-2.5 text-right font-medium">
+                      CO₂e
+                    </th>
+                    <th scope="col" className="px-4 py-2.5 font-medium">
+                      Period
+                    </th>
+                    <th scope="col" className="px-4 py-2.5 font-medium">
+                      Status
+                    </th>
+                    <th scope="col" className="px-4 py-2.5 text-right font-medium">
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {visible.map((a) => (
+                    <tr key={a.id} className="hover:bg-secondary/40">
+                      <td className="px-4 py-2.5">
+                        <span className="font-medium text-ink">{sourceLabel(a.source_type)}</span>
+                        {a.facility_code && (
+                          <span className="block text-xs text-muted-foreground">{a.facility_code}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <ScopeBadge scope={a.scope} />
+                      </td>
+                      <td className="px-4 py-2.5 text-ink">{humanize(a.sub_category)}</td>
+                      <td className="tabular px-4 py-2.5 text-right text-ink">
+                        {formatNumber(a.activity_value)}{' '}
+                        <span className="text-muted-foreground">{a.normalized_unit}</span>
+                      </td>
+                      <td className="tabular px-4 py-2.5 text-right font-medium text-ink">
+                        {formatCO2e(a.co2e)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-muted-foreground">
+                        {formatDate(a.period_start, { month: 'short', year: 'numeric' })}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <StatusBadge status={a.status} />
+                      </td>
+                      <td className="px-4 py-1.5">{actions(a)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          )}
-        </CardContent>
+
+            {/* Mobile cards */}
+            <ul className="divide-y md:hidden">
+              {visible.map((a) => (
+                <li key={a.id} className="space-y-2 px-4 py-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-medium text-ink">{humanize(a.sub_category)}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {sourceLabel(a.source_type)}
+                        {a.facility_code && ` · ${a.facility_code}`} ·{' '}
+                        {formatDate(a.period_start, { month: 'short', year: 'numeric' })}
+                      </p>
+                    </div>
+                    <StatusBadge status={a.status} />
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-3 text-sm">
+                      <ScopeBadge scope={a.scope} />
+                      <span className="tabular font-medium text-ink">{formatCO2e(a.co2e)}</span>
+                    </div>
+                    {actions(a)}
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            {items.length < count && (
+              <div className="border-t p-3 text-center">
+                <Button variant="ghost" onClick={() => load(page + 1, status)} disabled={loadingMore}>
+                  {loadingMore && <Loader2 className="animate-spin" aria-hidden="true" />}
+                  Load more ({count - items.length} remaining)
+                </Button>
+              </div>
+            )}
+          </>
+        )}
       </Card>
 
-      {/* Decision Dialog */}
-      <Dialog open={showDecisionDialog} onOpenChange={setShowDecisionDialog}>
+      <Dialog open={!!decision} onOpenChange={(open) => !open && !submitting && setDecision(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>
-              {decisionType === 'APPROVE' ? 'Approve Activity' : 'Reject Activity'}
-            </DialogTitle>
+            <DialogTitle>{decision?.type === 'APPROVE' ? 'Approve activity' : 'Reject activity'}</DialogTitle>
             <DialogDescription>
-              {selectedActivity && (
-                <span>
-                  {selectedActivity.category} · {selectedActivity.sub_category} ·{' '}
-                  {parseFloat(selectedActivity.co2e).toFixed(1)} kg CO₂e
-                </span>
-              )}
+              {decision &&
+                `${humanize(decision.activity.sub_category)} · ${formatCO2e(decision.activity.co2e)} CO₂e · ${formatDate(decision.activity.period_start)}`}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium text-gray-700">Reason (optional)</label>
-              <Textarea
-                value={decisionReason}
-                onChange={(e) => setDecisionReason(e.target.value)}
-                placeholder="Add a note about this decision..."
-                className="mt-1"
-              />
-            </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="decision-reason">Reason {decision?.type === 'APPROVE' && '(optional)'}</Label>
+            <Textarea
+              id="decision-reason"
+              value={reason}
+              maxLength={2000}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder={
+                decision?.type === 'APPROVE' ? 'Matches source invoice' : 'Why is this record rejected?'
+              }
+            />
+            <p className="text-xs text-muted-foreground">The reason is stored in the audit trail.</p>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDecisionDialog(false)}>
+            <Button variant="outline" onClick={() => setDecision(null)} disabled={submitting}>
               Cancel
             </Button>
             <Button
-              onClick={handleDecision}
-              disabled={!!actionLoading}
-              className={decisionType === 'APPROVE' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}
+              onClick={submitDecision}
+              disabled={submitting || (decision?.type === 'REJECT' && !reason.trim())}
+              variant={decision?.type === 'REJECT' ? 'destructive' : 'default'}
             >
-              {actionLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : decisionType === 'APPROVE' ? (
-                'Approve'
-              ) : (
-                'Reject'
-              )}
+              {submitting && <Loader2 className="animate-spin" aria-hidden="true" />}
+              {decision?.type === 'APPROVE' ? 'Approve' : 'Reject'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* History Dialog */}
-      <Dialog open={showHistory} onOpenChange={setShowHistory}>
-        <DialogContent className="max-w-lg">
+      <Dialog open={!!detail} onOpenChange={(open) => !open && setDetail(null)}>
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Review History</DialogTitle>
+            <DialogTitle>Activity detail</DialogTitle>
+            <DialogDescription>
+              {detail &&
+                `${humanize(detail.activity.sub_category)} from ${sourceLabel(detail.activity.source_type)}`}
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            {history.length === 0 && (
-              <p className="text-gray-500 text-center py-4">No decisions recorded yet</p>
-            )}
-            {history.map((decision) => (
-              <div key={decision.id} className="p-3 bg-gray-50 rounded-lg">
-                <div className="flex items-center justify-between">
-                  <Badge
-                    variant="secondary"
-                    className={decision.decision === 'APPROVE' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}
-                  >
-                    {decision.decision}
-                  </Badge>
-                  <span className="text-xs text-gray-500">
-                    {decision.reviewed_by_name} · {new Date(decision.created_at).toLocaleDateString()}
-                  </span>
+          {detail && (
+            <div className="space-y-5 text-sm">
+              <dl className="tabular grid grid-cols-2 gap-3">
+                <div>
+                  <dt className="text-xs text-muted-foreground">Quantity</dt>
+                  <dd className="font-medium text-ink">
+                    {formatNumber(detail.activity.activity_value)} {detail.activity.normalized_unit}
+                  </dd>
                 </div>
-                {decision.reason && (
-                  <p className="text-sm text-gray-600 mt-2">{decision.reason}</p>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Emission factor</dt>
+                  <dd className="font-medium text-ink">
+                    {formatNumber(detail.activity.emission_factor, 4)} kg/{detail.activity.normalized_unit}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">CO₂e</dt>
+                  <dd className="font-medium text-ink">{formatCO2e(detail.activity.co2e)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Factor source</dt>
+                  <dd className="font-medium text-ink">{detail.activity.emission_factor_source || '-'}</dd>
+                </div>
+              </dl>
+              <section>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Source row
+                </h3>
+                <pre className="mt-2 max-h-48 overflow-auto rounded-md border bg-secondary/50 p-3 font-mono text-xs">
+                  {JSON.stringify(
+                    detail.activity.source_payload?._raw ?? detail.activity.source_payload,
+                    null,
+                    2,
+                  )}
+                </pre>
+              </section>
+              <section>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Decisions
+                </h3>
+                {detail.history === null ? (
+                  <Skeleton className="mt-2 h-12" />
+                ) : detail.history.length === 0 ? (
+                  <p className="mt-2 text-muted-foreground">No decisions recorded yet.</p>
+                ) : (
+                  <ul className="mt-2 space-y-2">
+                    {detail.history.map((d) => (
+                      <li key={d.id} className="rounded-md border p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <StatusBadge status={d.decision === 'APPROVE' ? 'APPROVED' : 'REJECTED'} />
+                          <span className="text-xs text-muted-foreground">
+                            {d.reviewed_by_name} · {formatDate(d.created_at)}
+                          </span>
+                        </div>
+                        {d.reason && <p className="mt-2 text-foreground/90">{d.reason}</p>}
+                      </li>
+                    ))}
+                  </ul>
                 )}
-              </div>
-            ))}
-          </div>
+              </section>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

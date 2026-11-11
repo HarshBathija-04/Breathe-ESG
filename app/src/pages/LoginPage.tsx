@@ -1,139 +1,167 @@
 /*
-
-Login page - handles user authentication.
+Login page - email/password sign-in plus one-click demo accounts.
 */
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/context/AuthContext';
-import { Leaf, AlertCircle } from 'lucide-react';
+import { useEffect, useState, type FormEvent } from 'react';
+import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { AlertCircle, ArrowRight, Loader2 } from 'lucide-react';
+import { warmUpServer } from '@/api/client';
+import { Logo } from '@/components/common';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useAuth } from '@/context/AuthContext';
+import { messageFromError } from '@/lib/http';
+
+const DEMO_ACCOUNTS = [
+  {
+    email: 'reviewer@democorp.com',
+    password: 'reviewer123',
+    role: 'Reviewer',
+    note: 'Approve, reject and lock records',
+  },
+  {
+    email: 'analyst@democorp.com',
+    password: 'analyst123',
+    role: 'Analyst',
+    note: 'Upload files and prepare data',
+  },
+  { email: 'admin@democorp.com', password: 'admin123', role: 'Admin', note: 'Everything, plus Django admin' },
+];
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [params] = useSearchParams();
   const { login, isAuthenticated } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState(
+    params.get('expired') ? 'Your session expired. Please sign in again.' : '',
+  );
+  const [submitting, setSubmitting] = useState<string | null>(null);
 
-  // Redirect if already authenticated
-  if (isAuthenticated) {
-    navigate('/', { replace: true });
-    return null;
-  }
+  useEffect(() => warmUpServer(), []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const from = (location.state as { from?: string } | null)?.from ?? '/app';
+  if (isAuthenticated) return <Navigate to={from} replace />;
+
+  const signIn = async (address: string, secret: string, key: string) => {
     setError('');
-    setIsSubmitting(true);
-
+    setSubmitting(key);
     try {
-      await login(email, password);
-      navigate('/', { replace: true });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Login failed';
-      setError(message);
-    } finally {
-      setIsSubmitting(false);
+      await login(address, secret);
+      navigate(from, { replace: true });
+    } catch (err) {
+      setError(messageFromError(err, 'Sign in failed. Please try again.'));
+      setSubmitting(null);
     }
   };
 
-  // Quick login buttons for demo
-  const quickLogin = (email: string, pass: string) => {
-    setEmail(email);
-    setPassword(pass);
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    signIn(email, password, 'form');
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        {/* Logo */}
-        <div className="flex items-center justify-center gap-2 mb-8">
-          <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center">
-            <Leaf className="w-6 h-6 text-white" />
-          </div>
-          <div>
-            <span className="text-2xl font-bold text-gray-900">Breathe</span>
-            <span className="text-2xl font-bold text-emerald-600">ESG</span>
+    <div className="grid min-h-dvh lg:grid-cols-2">
+      <aside className="relative hidden overflow-hidden bg-primary p-12 text-primary-foreground lg:flex lg:flex-col lg:justify-between">
+        <div className="ledger-grid absolute inset-0 opacity-[0.07]" aria-hidden="true" />
+        <Link to="/" className="relative w-fit rounded-md" aria-label="Breathe ESG home">
+          <Logo inverted />
+        </Link>
+        <blockquote className="relative max-w-md">
+          <p className="font-display text-3xl font-medium leading-snug">
+            “If it is not on the audit trail, it did not happen.”
+          </p>
+          <footer className="mt-4 text-sm text-primary-foreground/75">
+            Every upload, edit, approval and lock in Breathe ESG is recorded with who, when and why.
+          </footer>
+        </blockquote>
+        <p className="relative text-xs text-primary-foreground/70">Demo tenant: Northwind Manufacturing</p>
+      </aside>
+
+      <main className="flex items-center justify-center px-4 py-10 sm:px-8">
+        <div className="w-full max-w-sm">
+          <Link to="/" className="mb-10 inline-block rounded-md lg:hidden">
+            <Logo />
+          </Link>
+          <h1 className="font-display text-2xl font-semibold tracking-tight text-ink">Sign in</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Use a demo account below or your own credentials.
+          </p>
+
+          <form onSubmit={handleSubmit} className="mt-8 space-y-4" noValidate={false}>
+            {error && (
+              <div
+                role="alert"
+                className="flex items-start gap-2 rounded-lg bg-danger-soft p-3 text-sm text-destructive"
+              >
+                <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                {error}
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                className="h-10"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                className="h-10"
+              />
+            </div>
+            <Button type="submit" className="h-10 w-full" disabled={!!submitting}>
+              {submitting === 'form' ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
+              {submitting === 'form' ? 'Signing in' : 'Sign in'}
+            </Button>
+          </form>
+
+          <div className="mt-10">
+            <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              One-click demo accounts
+            </h2>
+            <ul className="mt-3 divide-y overflow-hidden rounded-lg border bg-card">
+              {DEMO_ACCOUNTS.map((account) => (
+                <li key={account.email}>
+                  <button
+                    type="button"
+                    disabled={!!submitting}
+                    onClick={() => signIn(account.email, account.password, account.email)}
+                    className="group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors duration-150 hover:bg-secondary disabled:opacity-60"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-medium text-ink">{account.role}</span>
+                      <span className="block truncate text-xs text-muted-foreground">{account.note}</span>
+                    </span>
+                    {submitting === account.email ? (
+                      <Loader2 className="size-4 animate-spin text-primary" aria-label="Signing in" />
+                    ) : (
+                      <ArrowRight
+                        className="size-4 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5"
+                        aria-hidden="true"
+                      />
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Sign in</CardTitle>
-            <CardDescription>
-              Enter your credentials to access the platform
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {error && (
-                <div className="flex items-center gap-2 p-3 bg-red-50 text-red-700 rounded-lg text-sm">
-                  <AlertCircle className="w-4 h-4" />
-                  {error}
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@democorp.com"
-                  required
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••"
-                  required
-                />
-              </div>
-
-              <Button
-                type="submit"
-                className="w-full bg-emerald-600 hover:bg-emerald-700"
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? 'Signing in...' : 'Sign in'}
-              </Button>
-            </form>
-
-            {/* Quick login for demo */}
-            <div className="mt-6 pt-4 border-t border-gray-200">
-              <p className="text-xs text-gray-500 mb-3">Demo accounts:</p>
-              <div className="space-y-2">
-                {[
-                  { email: 'admin@democorp.com', pass: 'admin123', role: 'Admin' },
-                  { email: 'analyst@democorp.com', pass: 'analyst123', role: 'Analyst' },
-                  { email: 'reviewer@democorp.com', pass: 'reviewer123', role: 'Reviewer' },
-                ].map((account) => (
-                  <button
-                    key={account.email}
-                    type="button"
-                    onClick={() => quickLogin(account.email, account.pass)}
-                    className="w-full flex items-center justify-between px-3 py-2 text-sm bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
-                  >
-                    <span className="text-gray-700">{account.email}</span>
-                    <span className="text-xs text-gray-400">{account.role}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      </main>
     </div>
   );
 }
